@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		30A3AB672FBB655D004790CB /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 30A3AB662FBB655D004790CB /* Supabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		30A3AB572FBB64A0004790CB /* AerealPerspective.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AerealPerspective.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				30A3AB672FBB655D004790CB /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = AerealPerspective;
 			packageProductDependencies = (
+				30A3AB662FBB655D004790CB /* Supabase */,
 			);
 			productName = AerealPerspective;
 			productReference = 30A3AB572FBB64A0004790CB /* AerealPerspective.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 30A3AB4E2FBB64A0004790CB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				30A3AB652FBB655D004790CB /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 30A3AB582FBB64A0004790CB /* Products */;
 			projectDirPath = "";
@@ -332,6 +341,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		30A3AB652FBB655D004790CB /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		30A3AB662FBB655D004790CB /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 30A3AB652FBB655D004790CB /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 30A3AB4F2FBB64A0004790CB /* Project object */;
 }

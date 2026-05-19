@@ -9,9 +9,22 @@ import SwiftUI
 
 @main
 struct AerealPerspectiveApp: App {
+    @State private var authStore = AuthStore()
+    @State private var questionStore = QuestionStore()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if authStore.isLoading {
+                ProgressView()
+            } else if authStore.user == nil {
+                AuthView(authStore: authStore)
+            } else {
+                ProjectListView(
+                    authStore: authStore,
+                    questionStore: questionStore
+                )
+                .task { await questionStore.fetch() }
+            }
         }
     }
 }
