@@ -15,47 +15,28 @@ struct ResultView: View {
     var answerStore: AnswerStore
     var questionStore: QuestionStore
 
+    @State private var showInsights = false
+    @State private var showPlan = false
+
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.apBackground.ignoresSafeArea()
             ScrollView {
                 VStack(spacing: 32) {
                     RadarChart(scores: domainScores)
                         .frame(height: 300)
                         .padding(.horizontal, 16)
                         .padding(.top, 24)
-                    domainList
+
+                    bentoGrid
 
                     VStack(spacing: 12) {
-                        NavigationLink {
-                            InsightsView(
-                                assessment: assessment,
-                                project: project,
-                                domainScores: domainScores,
-                                answerStore: answerStore,
-                                questionStore: questionStore
-                            )
-                        } label: {
-                            Text("Insikter")
-                                .frame(maxWidth: .infinity)
+                        APPillButton(title: "Insikter") {
+                            showInsights = true
                         }
-                        .buttonStyle(.bordered)
-                        .tint(.cyan)
-
-                        NavigationLink {
-                            PlanView(
-                                assessment: assessment,
-                                project: project,
-                                domainScores: domainScores,
-                                answerStore: answerStore,
-                                questionStore: questionStore
-                            )
-                        } label: {
-                            Text("30-60-90 Plan")
-                                .frame(maxWidth: .infinity)
+                        APPillButton(title: "30-60-90 Plan", style: .secondary) {
+                            showPlan = true
                         }
-                        .buttonStyle(.bordered)
-                        .tint(.cyan)
                     }
                     .padding(.horizontal, 20)
                 }
@@ -65,49 +46,74 @@ struct ResultView: View {
         .navigationTitle("Resultat – Assessment \(assessment.version)")
         .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.dark)
+        .toolbarBackground(Color.apBackground, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .navigationDestination(isPresented: $showInsights) {
+            InsightsView(
+                assessment: assessment,
+                project: project,
+                domainScores: domainScores,
+                answerStore: answerStore,
+                questionStore: questionStore
+            )
+        }
+        .navigationDestination(isPresented: $showPlan) {
+            PlanView(
+                assessment: assessment,
+                project: project,
+                domainScores: domainScores,
+                answerStore: answerStore,
+                questionStore: questionStore
+            )
+        }
     }
 
-    private var domainList: some View {
-        VStack(spacing: 12) {
+    // MARK: - Bento grid
+
+    private var bentoGrid: some View {
+        LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+            spacing: 12
+        ) {
             ForEach(domainScores, id: \.domain) { ds in
-                HStack(spacing: 12) {
-                    Text(ds.domain.rawValue)
-                        .foregroundStyle(.white)
-                        .font(.subheadline)
-                    Spacer()
-                    Text("\(ds.score)")
-                        .foregroundStyle(Color.white.opacity(0.6))
-                        .font(.subheadline.monospacedDigit())
-                    levelPill(ds.level)
-                }
-                .padding(.horizontal, 20)
+                domainCell(ds)
             }
         }
+        .padding(.horizontal, 16)
     }
 
-    private func levelPill(_ level: ScoreLevel) -> some View {
-        Text(levelLabel(level))
-            .font(.caption2.bold())
-            .foregroundStyle(.black)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(levelColor(level))
-            .clipShape(Capsule())
-    }
-
-    private func levelLabel(_ level: ScoreLevel) -> String {
-        switch level {
-        case .strong: return "Stark"
-        case .note:   return "Notera"
-        case .risk:   return "Risk"
+    private func domainCell(_ ds: DomainScore) -> some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(accentColor(for: ds.level))
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(ds.domain.rawValue.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.apTextSecondary)
+                Text("\(ds.score)")
+                    .font(.title.bold())
+                    .foregroundStyle(.apTextPrimary)
+                APScorePill(score: ds.score, level: ds.level)
+            }
+            .padding(.vertical, 16)
+            .padding(.horizontal, 16)
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.apSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func levelColor(_ level: ScoreLevel) -> Color {
+    private func accentColor(for level: ScoreLevel) -> Color {
         switch level {
-        case .strong: return .green
-        case .note:   return .yellow
-        case .risk:   return .red
+        case .risk:   return Color.apRisk
+        case .note:   return Color.apNote
+        case .strong: return Color.apStrong
         }
     }
 }
@@ -129,7 +135,7 @@ private struct RadarChart: View {
                 // Background grid rings
                 ForEach(Self.gridLevels.indices, id: \.self) { gi in
                     hexPath(center: center, radius: radius * Self.gridLevels[gi], n: n)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        .stroke(Color.apTextTertiary.opacity(0.3), lineWidth: 1)
                 }
 
                 // Axis spokes from center to each vertex
@@ -138,22 +144,22 @@ private struct RadarChart: View {
                         p.move(to: center)
                         p.addLine(to: vertex(i: i, n: n, center: center, r: radius))
                     }
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    .stroke(Color.apTextTertiary.opacity(0.3), lineWidth: 1)
                 }
 
                 // Score polygon fill
                 scorePath(center: center, radius: radius, n: n)
-                    .fill(Color.cyan.opacity(0.22))
+                    .fill(Color.apOrange.opacity(0.25))
 
                 // Score polygon stroke
                 scorePath(center: center, radius: radius, n: n)
-                    .stroke(Color.cyan, lineWidth: 2)
+                    .stroke(Color.apOrange, lineWidth: 2)
 
                 // Score dots
                 ForEach(0..<n, id: \.self) { i in
                     let r = radius * Double(scores[i].score) / 100.0
                     Circle()
-                        .fill(Color.cyan)
+                        .fill(Color.apOrange)
                         .frame(width: 7, height: 7)
                         .position(vertex(i: i, n: n, center: center, r: r))
                 }
@@ -162,7 +168,7 @@ private struct RadarChart: View {
                 ForEach(0..<n, id: \.self) { i in
                     Text(scores[i].domain.rawValue)
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.apTextSecondary)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .frame(width: 68)
@@ -175,7 +181,6 @@ private struct RadarChart: View {
     // MARK: Geometry helpers
 
     private func angle(i: Int, n: Int) -> Double {
-        // Start at top (−90°), proceed clockwise
         (Double(i) * 360.0 / Double(n) - 90.0) * .pi / 180.0
     }
 
@@ -205,4 +210,3 @@ private struct RadarChart: View {
         }
     }
 }
-

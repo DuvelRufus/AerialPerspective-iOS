@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 import SwiftUI
 
 struct InsightsView: View {
@@ -105,6 +106,7 @@ struct InsightsView: View {
 
     private func generateButton(_ label: String) -> some View {
         Button(label) {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             Task { await generate() }
         }
         .buttonStyle(.borderedProminent)

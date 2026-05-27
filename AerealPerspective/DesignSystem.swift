@@ -1,0 +1,225 @@
+//
+//  DesignSystem.swift
+//  AerealPerspective
+//
+//  Created by Danny Axiotis on 2026-05-19.
+//
+
+import Foundation
+import UIKit
+import SwiftUI
+
+// MARK: - Color palette
+
+extension Color {
+    // Backgrounds
+    static let apBackground       = Color(hex: "#0F0E0C")
+    static let apSurface          = Color(hex: "#1C1A17")
+    static let apSurfaceElevated  = Color(hex: "#2A2724")
+
+    // Orange accent
+    static let apOrange           = Color(hex: "#F97316")
+    static let apOrangePressed    = Color(hex: "#EA6B0A")
+    static let apOrangeTint       = Color(hex: "#431407")
+
+    // Text
+    static let apTextPrimary      = Color(hex: "#F2EDE4")
+    static let apTextSecondary    = Color(hex: "#9E9488")
+    static let apTextTertiary     = Color(hex: "#5C5650")
+
+    // Semantic
+    static let apRisk             = Color(hex: "#EF4444")
+    static let apNote             = Color(hex: "#F59E0B")
+    static let apStrong           = Color(hex: "#22C55E")
+
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default: (a, r, g, b) = (255, 0, 0, 0)
+        }
+        self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, opacity: Double(a) / 255)
+    }
+}
+
+// Enables .foregroundStyle(.apOrange) shorthand (mirrors how SwiftUI exposes .red, .blue, etc.)
+extension ShapeStyle where Self == Color {
+    static var apBackground:      Color { Color.apBackground }
+    static var apSurface:         Color { Color.apSurface }
+    static var apSurfaceElevated: Color { Color.apSurfaceElevated }
+    static var apOrange:          Color { Color.apOrange }
+    static var apOrangePressed:   Color { Color.apOrangePressed }
+    static var apOrangeTint:      Color { Color.apOrangeTint }
+    static var apTextPrimary:     Color { Color.apTextPrimary }
+    static var apTextSecondary:   Color { Color.apTextSecondary }
+    static var apTextTertiary:    Color { Color.apTextTertiary }
+    static var apRisk:            Color { Color.apRisk }
+    static var apNote:            Color { Color.apNote }
+    static var apStrong:          Color { Color.apStrong }
+}
+
+// MARK: - APPillButton
+
+enum APPillButtonStyle {
+    case primary, secondary, destructive
+}
+
+private struct APButtonPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        BodyView(configuration: configuration)
+    }
+
+    private struct BodyView: View {
+        let configuration: ButtonStyleConfiguration
+        @State private var generator = UIImpactFeedbackGenerator(style: .medium)
+
+        var body: some View {
+            configuration.label
+                .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+                .onChange(of: configuration.isPressed) { _, isPressed in
+                    if isPressed { generator.impactOccurred() }
+                }
+                .onAppear { generator.prepare() }
+        }
+    }
+}
+
+struct APPillButton: View {
+    let title: String
+    let action: () -> Void
+    var style: APPillButtonStyle = .primary
+
+    var body: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(labelColor)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background { Rectangle().fill(background) }
+                .overlay(alignment: .top) {
+                    if style == .primary {
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.125), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 27)
+                        .allowsHitTesting(false)
+                    }
+                }
+                .overlay {
+                    Capsule()
+                        .strokeBorder(borderColor, lineWidth: borderWidth)
+                }
+                .clipShape(Capsule())
+        }
+        .buttonStyle(APButtonPressStyle())
+    }
+
+    private var labelColor: Color {
+        switch style {
+        case .primary:     return .white
+        case .secondary:   return .apTextPrimary
+        case .destructive: return .white
+        }
+    }
+
+    private var background: AnyShapeStyle {
+        switch style {
+        case .primary:
+            return AnyShapeStyle(
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(hex: "#FF8C42"), location: 0),
+                        .init(color: Color(hex: "#F97316"), location: 0.5),
+                        .init(color: Color(hex: "#C2410C"), location: 1),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+        case .secondary:
+            return AnyShapeStyle(Color.apSurfaceElevated)
+        case .destructive:
+            return AnyShapeStyle(Color.apRisk)
+        }
+    }
+
+    private var borderColor: Color {
+        style == .secondary ? Color.white.opacity(0.08) : .clear
+    }
+
+    private var borderWidth: CGFloat {
+        style == .secondary ? 1 : 0
+    }
+}
+
+// MARK: - APCard
+
+struct APCard<Content: View>: View {
+    let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content()
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+// MARK: - APScorePill
+
+struct APScorePill: View {
+    let score: Int
+    let level: ScoreLevel
+
+    var body: some View {
+        Text("\(score)")
+            .font(.caption.monospacedDigit().weight(.semibold))
+            .foregroundStyle(textColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(textColor.opacity(0.15))
+            .clipShape(Capsule())
+    }
+
+    private var textColor: Color {
+        switch level {
+        case .risk:   return .apRisk
+        case .note:   return .apNote
+        case .strong: return .apStrong
+        }
+    }
+}
+
+// MARK: - APSectionHeader
+
+struct APSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(.caption)
+            .tracking(1.5)
+            .foregroundStyle(Color.apTextSecondary)
+    }
+}

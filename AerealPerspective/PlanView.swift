@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 import SwiftUI
 import Supabase
 
@@ -126,6 +127,7 @@ struct PlanView: View {
 
     private func generateButton(_ label: String) -> some View {
         Button(label) {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             Task { await generate() }
         }
         .buttonStyle(.borderedProminent)

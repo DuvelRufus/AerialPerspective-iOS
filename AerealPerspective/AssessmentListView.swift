@@ -17,65 +17,102 @@ struct AssessmentListView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.apBackground.ignoresSafeArea()
 
             if assessmentStore.isLoading {
-                ProgressView().tint(.cyan)
+                ProgressView()
+                    .tint(.apOrange)
             } else if assessmentStore.assessments.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "chart.bar.doc.horizontal")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.cyan)
-                    Text("Inga assessments ännu")
-                        .foregroundStyle(.white)
-                    Button("Starta assessment 1") {
-                        Task { await createFirst() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.cyan)
-                }
+                emptyState
             } else {
-                List {
-                    ForEach(assessmentStore.assessments) { assessment in
-                        NavigationLink {
-                            AssessmentView(
-                                assessment: assessment,
-                                project: project,
-                                questionStore: questionStore
-                            )
-                        } label: {
+                assessmentList
+            }
+        }
+        .navigationBarTitleDisplayMode(.large)
+        .preferredColorScheme(.dark)
+        .toolbarBackground(Color.apBackground, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .task { await assessmentStore.fetch(projectId: project.id) }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "chart.bar.doc.horizontal")
+                .font(.system(size: 48))
+                .foregroundStyle(.apOrange)
+            Text("Inga assessments ännu")
+                .font(.headline)
+                .foregroundStyle(.apTextPrimary)
+            Text(recommendedLabel)
+                .font(.subheadline)
+                .foregroundStyle(.apTextSecondary)
+                .multilineTextAlignment(.center)
+            APPillButton(title: "Starta assessment 1") {
+                Task { await createFirst() }
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 8)
+        }
+        .padding(.horizontal, 32)
+    }
+
+    private var assessmentList: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(assessmentStore.assessments) { assessment in
+                    NavigationLink {
+                        AssessmentView(
+                            assessment: assessment,
+                            project: project,
+                            questionStore: questionStore
+                        )
+                    } label: {
+                        APCard {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Assessment \(assessment.version)")
-                                        .foregroundStyle(.white)
-                                        .font(.headline)
+                                        .font(.title3.bold())
+                                        .foregroundStyle(.apTextPrimary)
                                     Text(assessment.createdAt.formatted(date: .abbreviated, time: .omitted))
                                         .font(.caption)
-                                        .foregroundStyle(.white.opacity(0.5))
+                                        .foregroundStyle(.apTextSecondary)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundStyle(.white.opacity(0.3))
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.apOrange)
+                                        .frame(width: 36, height: 36)
+                                    Text("\(assessment.version)")
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(.white)
+                                }
                             }
                         }
-                        .listRowBackground(Color.white.opacity(0.05))
                     }
-
-                    Button {
-                        Task { await createNext() }
-                    } label: {
-                        Label("Ny assessment", systemImage: "plus")
-                            .foregroundStyle(.cyan)
-                    }
-                    .listRowBackground(Color.white.opacity(0.05))
+                    .buttonStyle(.plain)
                 }
-                .scrollContentBackground(.hidden)
+
+                APPillButton(title: "Ny assessment", style: .secondary) {
+                    Task { await createNext() }
+                }
+                .padding(.top, 8)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .navigationTitle(project.name)
-        .navigationBarTitleDisplayMode(.large)
-        .preferredColorScheme(.dark)
-        .task { await assessmentStore.fetch(projectId: project.id) }
+    }
+
+    private var recommendedLabel: String {
+        guard let unit = project.durationUnit else {
+            return "Rekommenderat: 2 assessments"
+        }
+        switch unit {
+        case .weeks:
+            let isLong = (project.durationValue ?? 0) >= 5
+            return isLong ? "Rekommenderat: 3 assessments" : "Rekommenderat: 2 assessments"
+        case .months, .years:
+            return "Rekommenderat: 3 assessments"
+        }
     }
 
     private func createFirst() async {

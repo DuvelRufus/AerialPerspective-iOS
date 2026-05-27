@@ -11,6 +11,8 @@ import Supabase
 struct ProjectInsert: Encodable {
     let name: String
     let user_id: UUID
+    let duration_value: Int?
+    let duration_unit: String?
 }
 
 @MainActor
@@ -36,9 +38,14 @@ class ProjectStore {
         }
     }
 
-    func create(name: String) async throws -> Project {
+    func create(name: String, durationValue: Int? = nil, durationUnit: DurationUnit? = nil) async throws -> Project {
         let user = try await supabase.auth.user()
-        let insert = ProjectInsert(name: name, user_id: user.id)
+        let insert = ProjectInsert(
+            name: name,
+            user_id: user.id,
+            duration_value: durationValue,
+            duration_unit: durationUnit?.rawValue
+        )
         let project: Project = try await supabase
             .from("projects")
             .insert(insert)
