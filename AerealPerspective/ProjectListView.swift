@@ -48,11 +48,11 @@ struct ProjectListView: View {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Logga ut") {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         Task { try? await authStore.signOut() }
                     }
                     .font(.caption)
                     .foregroundStyle(.apTextTertiary)
+                    .haptic(.light)
                 }
             }
             .sheet(isPresented: $showNewProject) {
@@ -89,12 +89,12 @@ struct ProjectListView: View {
     private var projectList: some View {
         List {
             ForEach(projectStore.projects) { project in
-                NavigationLink {
-                    ProjectTabView(
+                NavigationLink(
+                    destination: ProjectTabView(
                         project: project,
                         questionStore: questionStore
                     )
-                } label: {
+                ) {
                     HStack(spacing: 0) {
                         Rectangle()
                             .fill(Color.apOrange)

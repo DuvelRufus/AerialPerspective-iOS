@@ -14,8 +14,8 @@ import SwiftUI
 extension Color {
     // Backgrounds
     static let apBackground       = Color(hex: "#0F0E0C")
-    static let apSurface          = Color(hex: "#1C1A17")
-    static let apSurfaceElevated  = Color(hex: "#2A2724")
+    static let apSurface          = Color(hex: "#232019")
+    static let apSurfaceElevated  = Color(hex: "#332F2A")
 
     // Orange accent
     static let apOrange           = Color(hex: "#F97316")
@@ -24,8 +24,8 @@ extension Color {
 
     // Text
     static let apTextPrimary      = Color(hex: "#F2EDE4")
-    static let apTextSecondary    = Color(hex: "#9E9488")
-    static let apTextTertiary     = Color(hex: "#5C5650")
+    static let apTextSecondary    = Color(hex: "#ABA193")
+    static let apTextTertiary     = Color(hex: "#837A6F")
 
     // Semantic
     static let apRisk             = Color(hex: "#EF4444")
@@ -71,22 +71,9 @@ enum APPillButtonStyle {
 
 private struct APButtonPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        BodyView(configuration: configuration)
-    }
-
-    private struct BodyView: View {
-        let configuration: ButtonStyleConfiguration
-        @State private var generator = UIImpactFeedbackGenerator(style: .medium)
-
-        var body: some View {
-            configuration.label
-                .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
-                .onChange(of: configuration.isPressed) { _, isPressed in
-                    if isPressed { generator.impactOccurred() }
-                }
-                .onAppear { generator.prepare() }
-        }
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
@@ -97,7 +84,6 @@ struct APPillButton: View {
 
     var body: some View {
         Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             action()
         } label: {
             Text(title)
@@ -124,6 +110,7 @@ struct APPillButton: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(APButtonPressStyle())
+        .haptic(.medium)
     }
 
     private var labelColor: Color {
@@ -221,5 +208,26 @@ struct APSectionHeader: View {
             .font(.caption)
             .tracking(1.5)
             .foregroundStyle(Color.apTextSecondary)
+    }
+}
+
+// MARK: - Haptic Modifier
+
+struct HapticModifier: ViewModifier {
+    var style: UIImpactFeedbackGenerator.FeedbackStyle = .light
+
+    func body(content: Content) -> some View {
+        content
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    UIImpactFeedbackGenerator(style: style).impactOccurred()
+                }
+            )
+    }
+}
+
+extension View {
+    func haptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .light) -> some View {
+        modifier(HapticModifier(style: style))
     }
 }

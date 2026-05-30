@@ -114,13 +114,13 @@ struct AuthView: View {
                     }
 
                     Button(isSignUp ? "Har redan konto? Logga in" : "Inget konto? Skapa ett") {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         isSignUp.toggle()
                         errorMessage = nil
                         successMessage = nil
                     }
                     .font(.subheadline)
                     .foregroundStyle(.apTextTertiary)
+                    .haptic(.light)
                 }
                 .padding(.horizontal, 32)
 
@@ -197,7 +197,6 @@ private struct LoadingPillButton: View {
 
     var body: some View {
         Button {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             action()
         } label: {
             ZStack {
@@ -239,6 +238,7 @@ private struct LoadingPillButton: View {
             .clipShape(Capsule())
         }
         .disabled(isLoading)
+        .haptic(.medium)
     }
 }
 

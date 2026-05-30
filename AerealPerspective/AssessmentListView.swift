@@ -90,6 +90,9 @@ struct AssessmentListView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    })
                 }
 
                 APPillButton(title: "Ny assessment", style: .secondary) {

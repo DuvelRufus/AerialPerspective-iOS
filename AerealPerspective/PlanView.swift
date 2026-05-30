@@ -24,7 +24,7 @@ struct PlanView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.apBackground.ignoresSafeArea()
             content
         }
         .navigationTitle("30-60-90 Plan")
@@ -38,24 +38,24 @@ struct PlanView: View {
         if isGenerating {
             VStack(spacing: 16) {
                 ProgressView()
-                    .tint(.cyan)
+                    .tint(.apOrange)
                 Text("Bygger plan...")
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.apTextSecondary)
                     .font(.subheadline)
             }
         } else if isLoading {
             VStack(spacing: 16) {
                 ProgressView()
-                    .tint(.cyan)
+                    .tint(.apOrange)
                 Text("Laddar plan...")
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.apTextSecondary)
                     .font(.subheadline)
             }
         } else if let plan {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text(plan.summary)
-                        .foregroundStyle(.white.opacity(0.8))
+                        .foregroundStyle(.apTextSecondary)
                         .font(.subheadline)
                         .padding(.horizontal)
 
@@ -63,13 +63,13 @@ struct PlanView: View {
                     phaseCard(title: "Dag 31–60", phase: plan.day31_60)
                     phaseCard(title: "Dag 61–90", phase: plan.day61_90)
 
-                    generateButton("Uppdatera")
+                    generateButton("Uppdatera", style: .secondary)
                         .padding(.horizontal)
                         .padding(.top, 8)
                     if let msg = errorMessage {
                         Text(msg)
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(.apRisk)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
                     }
@@ -80,15 +80,15 @@ struct PlanView: View {
             VStack(spacing: 20) {
                 Image(systemName: "calendar.badge.clock")
                     .font(.system(size: 48))
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(.apOrange)
                 Text("Ingen plan ännu")
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.apTextPrimary)
                     .font(.headline)
                 generateButton("Generera 30-60-90 plan")
                 if let msg = errorMessage {
                     Text(msg)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(.apRisk)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
@@ -97,41 +97,37 @@ struct PlanView: View {
     }
 
     private func phaseCard(title: String, phase: PlanPhase) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.cyan)
-            Text(phase.focus)
-                .font(.subheadline.bold())
-                .foregroundStyle(.white)
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(phase.actions.enumerated()), id: \.offset) { i, action in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("\(i + 1).")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.cyan)
-                            .frame(width: 20, alignment: .trailing)
-                        Text(action)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.8))
+        APCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.apOrange)
+                Text(phase.focus)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.apTextPrimary)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(phase.actions.enumerated()), id: \.offset) { i, action in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("\(i + 1).")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.apOrange)
+                                .frame(width: 20, alignment: .trailing)
+                            Text(action)
+                                .font(.caption)
+                                .foregroundStyle(.apTextSecondary)
+                        }
                     }
                 }
             }
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
         .padding(.horizontal)
     }
 
-    private func generateButton(_ label: String) -> some View {
-        Button(label) {
+    private func generateButton(_ label: String, style: APPillButtonStyle = .primary) -> some View {
+        APPillButton(title: label, action: {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             Task { await generate() }
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(.cyan)
+        }, style: style)
     }
 
     private func loadPlan() async {

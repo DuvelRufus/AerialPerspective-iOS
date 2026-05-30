@@ -33,10 +33,31 @@ private struct GlowBurst: View {
     }
 }
 
+private struct GlowRing: View {
+    @State private var scale: CGFloat = 1.0
+    @State private var opacity: Double = 1.0
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 14)
+            .stroke(Color.apOrange, lineWidth: 2)
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .allowsHitTesting(false)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    scale = 1.05
+                    opacity = 0
+                }
+            }
+    }
+}
+
 struct AssessmentView: View {
     var assessment: Assessment
     var project: Project
     var questionStore: QuestionStore
+
+    @Environment(\.dismiss) private var dismiss
 
     @State private var answerStore = AnswerStore()
     @State private var currentQuestionIndex = 0
@@ -96,28 +117,57 @@ struct AssessmentView: View {
             }
         }
         .gesture(swipeGesture)
-        .navigationTitle("Assessment \(assessment.version)")
-        .navigationBarTitleDisplayMode(.inline)
-        .preferredColorScheme(.dark)
-        .toolbarBackground(Color.apBackground, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .navigationBarBackButtonHidden(currentQuestionIndex > 0)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                if currentQuestionIndex > 0 {
-                    Button {
+        .safeAreaInset(edge: .bottom) {
+            if !allQuestions.isEmpty {
+                HStack(spacing: 12) {
+                    APPillButton(title: "Föregående", action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                             navigatingForward = false
                             currentQuestionIndex -= 1
                         }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                            Text("Tillbaka")
-                        }
-                        .foregroundStyle(.apOrange)
+                    }, style: .secondary)
+                    .disabled(currentQuestionIndex == 0)
+                    .opacity(currentQuestionIndex == 0 ? 0.4 : 1)
+
+                    let isLast = currentQuestionIndex == allQuestions.count - 1
+                    let lastAnswered = currentQuestion.map { answerStore.answers[$0.id] != nil } ?? false
+                    if isLast {
+                        APPillButton(title: "Se resultat", action: { showResult = true })
+                            .disabled(!lastAnswered)
+                            .opacity(!lastAnswered ? 0.5 : 1)
+                    } else {
+                        APPillButton(title: "Nästa", action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                navigatingForward = true
+                                currentQuestionIndex += 1
+                            }
+                        })
                     }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Color.apBackground)
+            }
+        }
+        .navigationTitle("Assessment \(assessment.version)")
+        .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
+        .toolbarBackground(Color.apBackground, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    dismiss()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text("Tillbaka")
+                    }
+                    .foregroundStyle(.apOrange)
                 }
             }
         }
@@ -194,7 +244,7 @@ struct AssessmentView: View {
                                 .foregroundStyle(.apTextSecondary)
                         }
 
-                        VStack(spacing: 8) {
+                        VStack(spacing: 10) {
                             ForEach(questionStore.optionsFor(question: question)) { option in
                                 optionButton(option: option, question: question)
                             }
@@ -202,14 +252,6 @@ struct AssessmentView: View {
                     }
                 }
 
-                // Se resultat after final question is answered
-                if currentQuestionIndex == allQuestions.count - 1,
-                   answerStore.answers[question.id] != nil {
-                    APPillButton(title: "Se resultat") {
-                        showResult = true
-                    }
-                    .padding(.top, 4)
-                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
@@ -221,43 +263,58 @@ struct AssessmentView: View {
     @ViewBuilder
     private func optionButton(option: AnswerOption, question: Question) -> some View {
         let isSelected = answerStore.answers[question.id] == option.id
+        let shape = RoundedRectangle(cornerRadius: 14)
         Button {
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             Task { await selectOption(option: option, question: question) }
         } label: {
-            Text(option.label)
-                .font(.subheadline)
-                .foregroundStyle(isSelected ? Color.white : Color.apTextPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background {
-                    if isSelected {
-                        Capsule().fill(
-                            LinearGradient(
-                                stops: [
-                                    .init(color: Color(hex: "#FF8C42"), location: 0),
-                                    .init(color: Color(hex: "#F97316"), location: 0.5),
-                                    .init(color: Color(hex: "#C2410C"), location: 1),
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
+            HStack(spacing: 10) {
+                Text(option.label)
+                    .font(.subheadline)
+                    .foregroundStyle(isSelected ? Color.white : Color.apTextPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.white)
+                        .transition(.scale(scale: 0).combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background {
+                if isSelected {
+                    shape.fill(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color(hex: "#FF8C42"), location: 0),
+                                .init(color: Color(hex: "#F97316"), location: 0.5),
+                                .init(color: Color(hex: "#C2410C"), location: 1),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
-                    } else {
-                        Capsule().fill(Color.apSurfaceElevated)
-                    }
+                    )
+                } else {
+                    shape.fill(Color.apSurfaceElevated)
+                        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
                 }
-                .overlay {
-                    if glowOptionId == option.id {
-                        GlowBurst()
-                            .clipShape(Capsule())
-                    }
+            }
+            .shadow(color: isSelected ? Color.apOrange.opacity(0.4) : .clear, radius: 8)
+            .overlay {
+                if glowOptionId == option.id {
+                    GlowBurst().clipShape(shape)
                 }
-                .clipShape(Capsule())
+            }
+            .clipShape(shape)
+            .overlay {
+                if glowOptionId == option.id {
+                    GlowRing()
+                }
+            }
         }
         .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.2), value: isSelected)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isSelected)
     }
 
     // MARK: - Actions
@@ -271,9 +328,12 @@ struct AssessmentView: View {
         glowOptionId = option.id
         let isLast = currentQuestionIndex >= allQuestions.count - 1
         Task {
-            try? await Task.sleep(for: .seconds(0.4))
+            try? await Task.sleep(for: .seconds(0.3))
             glowOptionId = nil
-            if !isLast {
+        }
+        if !isLast {
+            Task {
+                try? await Task.sleep(for: .seconds(0.15))
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                     navigatingForward = true
                     currentQuestionIndex += 1

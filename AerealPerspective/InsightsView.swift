@@ -22,7 +22,7 @@ struct InsightsView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.apBackground.ignoresSafeArea()
             content
         }
         .navigationTitle("Insikter")
@@ -36,24 +36,24 @@ struct InsightsView: View {
         if insightStore.isLoading || isGenerating {
             VStack(spacing: 16) {
                 ProgressView()
-                    .tint(.cyan)
+                    .tint(.apOrange)
                 Text("Analyserar...")
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.apTextSecondary)
                     .font(.subheadline)
             }
         } else if insightStore.insights.isEmpty {
             VStack(spacing: 20) {
                 Image(systemName: "lightbulb")
                     .font(.system(size: 48))
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(.apOrange)
                 Text("Inga insikter ännu")
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.apTextPrimary)
                     .font(.headline)
                 generateButton("Generera insikter")
                 if let msg = errorMessage {
                     Text(msg)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(.apRisk)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
@@ -64,12 +64,12 @@ struct InsightsView: View {
                     ForEach(insightStore.insights) { insight in
                         insightCard(insight)
                     }
-                    generateButton("Uppdatera")
+                    generateButton("Uppdatera", style: .secondary)
                         .padding(.top, 8)
                     if let msg = errorMessage {
                         Text(msg)
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(.apRisk)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
                     }
@@ -88,29 +88,31 @@ struct InsightsView: View {
                 if let title = insight.title {
                     Text(title)
                         .font(.subheadline.bold())
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.apTextPrimary)
                 }
                 if let content = insight.content {
                     Text(content)
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.75))
+                        .foregroundStyle(.apTextSecondary)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
             Spacer(minLength: 0)
         }
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .background(Color.apSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func generateButton(_ label: String) -> some View {
-        Button(label) {
+    private func generateButton(_ label: String, style: APPillButtonStyle = .primary) -> some View {
+        APPillButton(title: label, action: {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             Task { await generate() }
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(.cyan)
+        }, style: style)
     }
 
     private func generate() async {
@@ -138,10 +140,10 @@ struct InsightsView: View {
 
     private func riskColor(_ level: RiskLevel?) -> Color {
         switch level {
-        case .strong: return .green
-        case .note:   return .yellow
-        case .risk:   return .red
-        case nil:     return .gray
+        case .strong: return .apStrong
+        case .note:   return .apNote
+        case .risk:   return .apRisk
+        case nil:     return .apTextTertiary
         }
     }
 }
