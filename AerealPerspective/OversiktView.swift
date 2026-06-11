@@ -14,6 +14,7 @@ struct OversiktView: View {
     var questionStore: QuestionStore
 
     @State private var rows: [OverviewRow] = []
+    @State private var openCounts: [UUID: Int] = [:]
     @State private var isLoading = true
     @State private var loadFailed = false
 
@@ -98,6 +99,8 @@ struct OversiktView: View {
                 Text(Self.domainAbbreviations[domain] ?? domain.rawValue.uppercased())
                     .font(.caption2)
                     .foregroundStyle(.apTextTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -112,14 +115,21 @@ struct OversiktView: View {
             )
         ) {
             HStack(spacing: Self.cellSpacing) {
-                Text(row.project.name)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.apTextPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .frame(width: Self.nameColumnWidth, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.project.name)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.apTextPrimary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if let count = openCounts[row.project.id], count > 0 {
+                        Text("\(count) öppna")
+                            .font(.caption2)
+                            .foregroundStyle(.apOrange)
+                    }
+                }
+                .frame(width: Self.nameColumnWidth, alignment: .leading)
                 ForEach(Domain.allCases, id: \.self) { domain in
-                    scoreCell(row.scores?.first { $0.domain == domain })
+                    scoreCell(row.scores?[domain])
                 }
             }
             .padding(8)
@@ -193,29 +203,42 @@ struct OversiktView: View {
         }
         let projects = projectStore.projects
 
+        await fetchOpenCounts()
+
         if questionStore.questions.isEmpty {
             await questionStore.fetch()
         }
         let questions = questionStore.questions
         let options = questionStore.options
 
-        var scoresByProject: [UUID: [DomainScore]] = [:]
-        await withTaskGroup(of: (UUID, [DomainScore]?).self) { group in
+        var scoresByProject: [UUID: [Domain: DomainScore]] = [:]
+        await withTaskGroup(of: (UUID, [Domain: DomainScore]?).self) { group in
             for project in projects {
                 group.addTask { @MainActor in
                     let assessmentStore = AssessmentStore()
                     await assessmentStore.fetch(projectId: project.id)
-                    guard let latest = assessmentStore.assessments.max(by: { $0.version < $1.version }) else {
-                        return (project.id, nil)
+                    let byNewest = assessmentStore.assessments.sorted { $0.version > $1.version }
+                    for assessment in byNewest {
+                        let answerStore = AnswerStore()
+                        await answerStore.fetch(assessmentId: assessment.id)
+                        guard !answerStore.answers.isEmpty else { continue }
+                        let computed = ScoringService.compute(
+                            answers: answerStore.answers,
+                            questions: questions,
+                            options: options
+                        )
+                        var byDomain: [Domain: DomainScore] = [:]
+                        for ds in computed {
+                            let answeredInDomain = questions
+                                .filter { $0.domain == ds.domain.rawValue }
+                                .contains { answerStore.answers[$0.id] != nil }
+                            if answeredInDomain {
+                                byDomain[ds.domain] = ds
+                            }
+                        }
+                        return (project.id, byDomain)
                     }
-                    let answerStore = AnswerStore()
-                    await answerStore.fetch(assessmentId: latest.id)
-                    let scores = ScoringService.compute(
-                        answers: answerStore.answers,
-                        questions: questions,
-                        options: options
-                    )
-                    return (project.id, scores)
+                    return (project.id, nil)
                 }
             }
             for await (projectId, scores) in group {
@@ -227,10 +250,36 @@ struct OversiktView: View {
 
         rows = projects.map { OverviewRow(project: $0, scores: scoresByProject[$0.id]) }
     }
+
+    private func fetchOpenCounts() async {
+        do {
+            let rows: [OpenActionRow] = try await supabase
+                .from("actions")
+                .select("project_id")
+                .eq("status", value: "open")
+                .execute()
+                .value
+            var counts: [UUID: Int] = [:]
+            for row in rows {
+                counts[row.projectId, default: 0] += 1
+            }
+            openCounts = counts
+        } catch {
+            print("OversiktView: fetchOpenCounts error: \(error)")
+        }
+    }
+}
+
+private struct OpenActionRow: Codable {
+    let projectId: UUID
+    enum CodingKeys: String, CodingKey {
+        case projectId = "project_id"
+    }
 }
 
 private struct OverviewRow: Identifiable {
     let project: Project
-    let scores: [DomainScore]?
+    /// nil = no assessment with any answers; missing domain key = domain unanswered.
+    let scores: [Domain: DomainScore]?
     var id: UUID { project.id }
 }

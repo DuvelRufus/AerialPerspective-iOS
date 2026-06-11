@@ -17,8 +17,10 @@ struct InsightsView: View {
     var questionStore: QuestionStore
 
     @State private var insightStore = InsightStore()
+    @State private var actionStore = ActionStore()
     @State private var isGenerating = false
     @State private var errorMessage: String? = nil
+    @State private var insightForAction: Insight? = nil
 
     var body: some View {
         ZStack {
@@ -29,6 +31,11 @@ struct InsightsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.dark)
         .task { await insightStore.fetch(assessmentId: assessment.id) }
+        .sheet(item: $insightForAction) { insight in
+            CreateActionSheet(insight: insight, domainScores: domainScores) { title, domain in
+                Task { await createAction(title: title, domain: domain) }
+            }
+        }
     }
 
     @ViewBuilder
@@ -99,6 +106,17 @@ struct InsightsView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 14)
             Spacer(minLength: 0)
+            Button {
+                insightForAction = insight
+            } label: {
+                Image(systemName: "plus.circle")
+                    .font(.title3)
+                    .foregroundStyle(.apOrange)
+            }
+            .buttonStyle(.plain)
+            .haptic(.medium)
+            .minTapTarget()
+            .padding(.trailing, 4)
         }
         .background(Color.apSurface)
         .overlay(
@@ -138,6 +156,22 @@ struct InsightsView: View {
         }
     }
 
+    private func createAction(title: String, domain: Domain) async {
+        do {
+            try await actionStore.add(
+                projectId: project.id,
+                domain: domain.rawValue,
+                title: title,
+                assessmentId: assessment.id,
+                createdFromScore: domainScores.first { $0.domain == domain }?.score
+            )
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        } catch {
+            errorMessage = error.localizedDescription
+            print("InsightsView: createAction error: \(error)")
+        }
+    }
+
     private func riskColor(_ level: RiskLevel?) -> Color {
         switch level {
         case .strong: return .apStrong
@@ -145,5 +179,84 @@ struct InsightsView: View {
         case .risk:   return .apRisk
         case nil:     return .apTextTertiary
         }
+    }
+}
+
+// MARK: - Create Action Sheet
+
+private struct CreateActionSheet: View {
+    let insight: Insight
+    let domainScores: [DomainScore]
+    let onSave: (String, Domain) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    @State private var domain: Domain
+
+    init(
+        insight: Insight,
+        domainScores: [DomainScore],
+        onSave: @escaping (String, Domain) -> Void
+    ) {
+        self.insight = insight
+        self.domainScores = domainScores
+        self.onSave = onSave
+        _title = State(initialValue: insight.title ?? "")
+        _domain = State(initialValue: domainScores.min(by: { $0.score < $1.score })?.domain ?? .team)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.apBackground.ignoresSafeArea()
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "ÅTGÄRD")
+                        TextField("", text: $title)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "DOMÄN")
+                        Picker("Domän", selection: $domain) {
+                            ForEach(Domain.allCases, id: \.self) {
+                                Text($0.rawValue).tag($0)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(.apOrange)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
+                    APPillButton(title: "Spara", action: {
+                        let trimmed = title.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty else { return }
+                        onSave(trimmed, domain)
+                        dismiss()
+                    })
+                    .opacity(isDisabled ? 0.5 : 1)
+                    .disabled(isDisabled)
+
+                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationTitle("Ny åtgärd")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+            .toolbarBackground(Color.apBackground, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+        .presentationDetents([.medium])
     }
 }

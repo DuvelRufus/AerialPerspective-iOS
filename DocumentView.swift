@@ -81,13 +81,6 @@ private struct UpdateNote: Encodable {
     let content: String
 }
 
-private struct NewDecision: Encodable {
-    let project_id: UUID
-    let title: String
-    let description: String?
-    let decided_at: String
-}
-
 private struct NewLink: Encodable {
     let project_id: UUID
     let title: String
@@ -108,20 +101,39 @@ private enum DeleteIntent {
     case decision(Decision)
     case link(ProjectLink)
     case contact(Contact)
+    case action(ProjectAction)
 
     var title: String {
         switch self {
         case .decision(let d): return "Radera \"\(d.title)\"?"
         case .link(let l):     return "Radera \"\(l.title)\"?"
         case .contact(let c):  return "Radera \"\(c.name)\"?"
+        case .action(let a):   return "Radera \"\(a.title)\"?"
         }
     }
+}
+
+// MARK: - Add action target
+
+private struct AddActionTarget: Identifiable {
+    let domain: Domain
+    let score: Int?
+    var id: String { domain.rawValue }
 }
 
 // MARK: - DocumentView
 
 struct DocumentView: View {
     var project: Project
+    var questionStore: QuestionStore
+
+    // Assessment context
+    @State private var latestAssessment: Assessment? = nil
+    @State private var domainScores: [Domain: DomainScore] = [:]
+
+    // Actions
+    @State private var actionStore = ActionStore()
+    @State private var addActionTarget: AddActionTarget? = nil
 
     // Notes
     @State private var noteContent = ""
@@ -137,7 +149,6 @@ struct DocumentView: View {
     @State private var contacts: [Contact] = []
 
     // Sheets
-    @State private var showAddDecision = false
     @State private var showAddLink = false
     @State private var showAddContact = false
 
@@ -147,11 +158,22 @@ struct DocumentView: View {
     @State private var linksExpanded = false
     @State private var contactsExpanded = false
 
+    // View state
+    @State private var isLoading = true
+    @State private var loadFailed = false
+
     // Search & delete
     @State private var searchText = ""
     @State private var pendingDelete: DeleteIntent? = nil
 
     // MARK: Filtered
+
+    private func actionsFor(_ domain: Domain) -> [ProjectAction] {
+        actionStore.actions.filter {
+            $0.domain == domain.rawValue &&
+            (searchText.isEmpty || $0.title.localizedCaseInsensitiveContains(searchText))
+        }
+    }
 
     private var filteredDecisions: [Decision] {
         guard !searchText.isEmpty else { return decisions }
@@ -174,22 +196,61 @@ struct DocumentView: View {
         }
     }
 
+    // MARK: Domain ordering
+
+    private var sortedDomains: [Domain] {
+        Domain.allCases.sorted { sortKey($0) < sortKey($1) }
+    }
+
+    private func sortKey(_ domain: Domain) -> (Int, Int) {
+        guard let ds = domainScores[domain] else { return (3, 0) }
+        switch ds.level {
+        case .risk:   return (0, ds.score)
+        case .note:   return (1, ds.score)
+        case .strong: return (2, ds.score)
+        }
+    }
+
     // MARK: Body
 
     var body: some View {
         ZStack {
             Color.apBackground.ignoresSafeArea()
-            VStack(spacing: 0) {
-                searchBar
-                ScrollView {
-                    VStack(spacing: 12) {
-                        notesSection
-                        decisionsSection
-                        linksSection
-                        contactsSection
+            if isLoading {
+                ProgressView()
+                    .tint(.apOrange)
+            } else if loadFailed {
+                APErrorState {
+                    loadFailed = false
+                    isLoading = true
+                    Task { await fetchAll() }
+                }
+            } else {
+                VStack(spacing: 0) {
+                    searchBar
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if latestAssessment == nil {
+                                noAssessmentState
+                            } else {
+                                ForEach(sortedDomains, id: \.self) { domain in
+                                    domainCard(domain)
+                                }
+                            }
+
+                            APSectionHeader(title: "ÖVRIGT")
+                                .padding(.top, 12)
+                            notesSection
+                            if !decisions.isEmpty {
+                                decisionsSection
+                            }
+                            linksSection
+                            contactsSection
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .refreshable { await fetchAll() }
                 }
             }
         }
@@ -202,9 +263,9 @@ struct DocumentView: View {
             scheduleNoteSave()
         }
         .onDisappear { noteSaveTask?.cancel() }
-        .sheet(isPresented: $showAddDecision) {
-            AddDecisionSheet { title, desc, date in
-                Task { await addDecision(title: title, description: desc, date: date) }
+        .sheet(item: $addActionTarget) { target in
+            AddActionSheet(domainName: target.domain.rawValue) { title in
+                Task { await addAction(domain: target.domain, score: target.score, title: title) }
             }
         }
         .sheet(isPresented: $showAddLink) {
@@ -255,6 +316,157 @@ struct DocumentView: View {
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 4)
+    }
+
+    // MARK: - No assessment state
+
+    private var noAssessmentState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "chart.bar.doc.horizontal")
+                .font(.system(size: 40))
+                .foregroundStyle(.apOrange)
+            Text("Kör en assessment först")
+                .font(.subheadline)
+                .foregroundStyle(.apTextSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    // MARK: - Domain cards
+
+    private func domainCard(_ domain: Domain) -> some View {
+        let ds = domainScores[domain]
+        let domainActions = actionsFor(domain)
+        let isWeak = ds.map { $0.level != .strong } ?? false
+
+        return HStack(spacing: 0) {
+            Rectangle()
+                .fill(levelColor(ds?.level))
+                .frame(width: 4)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(domain.rawValue.uppercased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.apTextSecondary)
+                    Spacer()
+                    Text(ds.map { "\($0.score)" } ?? "–")
+                        .font(.title2.bold())
+                        .foregroundStyle(.apTextPrimary)
+                    if let ds {
+                        levelPill(ds.level)
+                    }
+                }
+
+                if isWeak || !domainActions.isEmpty {
+                    APSectionHeader(title: "ÅTGÄRDER")
+                        .padding(.top, 2)
+
+                    if domainActions.isEmpty {
+                        Text("Inga åtgärder ännu")
+                            .font(.caption)
+                            .foregroundStyle(.apTextTertiary)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(domainActions) { action in
+                                actionRow(action)
+                                if action.id != domainActions.last?.id {
+                                    Divider().background(Color.white.opacity(0.05))
+                                }
+                            }
+                        }
+                    }
+
+                    if isWeak {
+                        Button {
+                            addActionTarget = AddActionTarget(domain: domain, score: ds?.score)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus")
+                                Text("Lägg till åtgärd")
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.apOrange)
+                        }
+                        .buttonStyle(.plain)
+                        .haptic(.medium)
+                        .minTapTarget()
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color.apSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func actionRow(_ action: ProjectAction) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Task { await actionStore.toggle(action) }
+            } label: {
+                Image(systemName: action.isDone ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(action.isDone ? Color.apStrong : Color.apTextTertiary)
+            }
+            .buttonStyle(.plain)
+            .minTapTarget()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(action.title)
+                    .font(.subheadline)
+                    .strikethrough(action.isDone)
+                    .foregroundStyle(action.isDone ? Color.apTextTertiary : Color.apTextPrimary)
+                if let score = action.createdFromScore {
+                    Text("Skapad vid \(score) poäng")
+                        .font(.caption)
+                        .foregroundStyle(.apTextTertiary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(role: .destructive) {
+                pendingDelete = .action(action)
+            } label: {
+                Label("Radera", systemImage: "trash")
+            }
+        }
+    }
+
+    private func levelColor(_ level: ScoreLevel?) -> Color {
+        switch level {
+        case .risk:   return .apRisk
+        case .note:   return .apNote
+        case .strong: return .apStrong
+        case nil:     return .apTextTertiary
+        }
+    }
+
+    private func levelPill(_ level: ScoreLevel) -> some View {
+        Text(levelLabel(level))
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(levelColor(level))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(levelColor(level).opacity(0.15))
+            .clipShape(Capsule())
+    }
+
+    private func levelLabel(_ level: ScoreLevel) -> String {
+        switch level {
+        case .risk:   return "risk"
+        case .note:   return "bevaka"
+        case .strong: return "starkt"
+        }
     }
 
     // MARK: - Section header
@@ -360,7 +572,7 @@ struct DocumentView: View {
         }
     }
 
-    // MARK: - Decisions section
+    // MARK: - Decisions section (legacy, read-only)
 
     private var decisionsSection: some View {
         APCard {
@@ -369,12 +581,12 @@ struct DocumentView: View {
                     title: "BESLUT",
                     count: filteredDecisions.isEmpty ? nil : filteredDecisions.count,
                     isExpanded: decisionsExpanded,
-                    onAdd: { showAddDecision = true }
+                    onAdd: nil
                 ) { decisionsExpanded.toggle() }
 
                 if decisionsExpanded {
                     if filteredDecisions.isEmpty {
-                        Text(searchText.isEmpty ? "Inga beslut ännu" : "Inga träffar")
+                        Text("Inga träffar")
                             .font(.caption)
                             .foregroundStyle(.apTextTertiary)
                             .padding(.top, 12)
@@ -558,10 +770,53 @@ struct DocumentView: View {
     // MARK: - Fetch
 
     private func fetchAll() async {
-        await fetchNote()
+        actionStore.error = nil
+        await loadAssessmentContext()
+        await actionStore.fetch(projectId: project.id)
+        if !noteLoaded {
+            await fetchNote()
+        }
         await fetchDecisions()
         await fetchLinks()
         await fetchContacts()
+        loadFailed = actionStore.error != nil
+        isLoading = false
+    }
+
+    private func loadAssessmentContext() async {
+        let assessmentStore = AssessmentStore()
+        await assessmentStore.fetch(projectId: project.id)
+        if questionStore.questions.isEmpty {
+            await questionStore.fetch()
+        }
+        let questions = questionStore.questions
+        let options = questionStore.options
+
+        let byNewest = assessmentStore.assessments.sorted { $0.version > $1.version }
+        for assessment in byNewest {
+            let answerStore = AnswerStore()
+            await answerStore.fetch(assessmentId: assessment.id)
+            guard !answerStore.answers.isEmpty else { continue }
+            let computed = ScoringService.compute(
+                answers: answerStore.answers,
+                questions: questions,
+                options: options
+            )
+            var byDomain: [Domain: DomainScore] = [:]
+            for ds in computed {
+                let answeredInDomain = questions
+                    .filter { $0.domain == ds.domain.rawValue }
+                    .contains { answerStore.answers[$0.id] != nil }
+                if answeredInDomain {
+                    byDomain[ds.domain] = ds
+                }
+            }
+            latestAssessment = assessment
+            domainScores = byDomain
+            return
+        }
+        latestAssessment = nil
+        domainScores = [:]
     }
 
     private func fetchNote() async {
@@ -665,25 +920,17 @@ struct DocumentView: View {
 
     // MARK: - Add
 
-    private func addDecision(title: String, description: String?, date: Date) async {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+    private func addAction(domain: Domain, score: Int?, title: String) async {
         do {
-            let inserted: Decision = try await supabase
-                .from("decisions")
-                .insert(NewDecision(
-                    project_id: project.id,
-                    title: title,
-                    description: description,
-                    decided_at: formatter.string(from: date)
-                ))
-                .select()
-                .single()
-                .execute()
-                .value
-            decisions.insert(inserted, at: 0)
+            try await actionStore.add(
+                projectId: project.id,
+                domain: domain.rawValue,
+                title: title,
+                assessmentId: latestAssessment?.id,
+                createdFromScore: score
+            )
         } catch {
-            print("DocumentView: addDecision error: \(error)")
+            print("DocumentView: addAction error: \(error)")
         }
     }
 
@@ -731,6 +978,8 @@ struct DocumentView: View {
             case .contact(let c):
                 try await supabase.from("contacts").delete().eq("id", value: c.id).execute()
                 contacts.removeAll { $0.id == c.id }
+            case .action(let a):
+                try await actionStore.delete(a)
             }
         } catch {
             print("DocumentView: delete error: \(error)")
@@ -738,15 +987,14 @@ struct DocumentView: View {
     }
 }
 
-// MARK: - Add Decision Sheet
+// MARK: - Add Action Sheet
 
-private struct AddDecisionSheet: View {
-    let onSave: (String, String?, Date) -> Void
+private struct AddActionSheet: View {
+    let domainName: String
+    let onSave: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
-    @State private var description = ""
-    @State private var decidedAt = Date()
 
     var body: some View {
         NavigationStack {
@@ -754,7 +1002,7 @@ private struct AddDecisionSheet: View {
                 Color.apBackground.ignoresSafeArea()
                 VStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "TITEL")
+                        APSectionHeader(title: "ÅTGÄRD – \(domainName.uppercased())")
                         TextField("", text: $title)
                             .textFieldStyle(.plain)
                             .foregroundStyle(.apTextPrimary)
@@ -763,32 +1011,11 @@ private struct AddDecisionSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "BESKRIVNING (VALFRITT)")
-                        TextField("", text: $description)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.apTextPrimary)
-                            .padding()
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "DATUM")
-                        DatePicker("", selection: $decidedAt, displayedComponents: .date)
-                            .datePickerStyle(.compact)
-                            .labelsHidden()
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
                     let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
                     APPillButton(title: "Spara", action: {
                         let trimmed = title.trimmingCharacters(in: .whitespaces)
                         guard !trimmed.isEmpty else { return }
-                        onSave(trimmed, description.isEmpty ? nil : description, decidedAt)
+                        onSave(trimmed)
                         dismiss()
                     })
                     .opacity(isDisabled ? 0.5 : 1)
@@ -799,12 +1026,13 @@ private struct AddDecisionSheet: View {
                 }
                 .padding()
             }
-            .navigationTitle("Nytt beslut")
+            .navigationTitle("Ny åtgärd")
             .navigationBarTitleDisplayMode(.inline)
             .preferredColorScheme(.dark)
             .toolbarBackground(Color.apBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
+        .presentationDetents([.medium])
     }
 }
 

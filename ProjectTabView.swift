@@ -17,7 +17,7 @@ struct ProjectTabView: View {
         ZStack {
             Color.apBackground.ignoresSafeArea()
             VStack(spacing: 0) {
-                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Dokument"])
+                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Åtgärder"])
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 4)
@@ -25,7 +25,7 @@ struct ProjectTabView: View {
                 if selectedSection == 0 {
                     AssessmentListView(project: project, questionStore: questionStore)
                 } else {
-                    DocumentView(project: project)
+                    DocumentView(project: project, questionStore: questionStore)
                 }
             }
         }
