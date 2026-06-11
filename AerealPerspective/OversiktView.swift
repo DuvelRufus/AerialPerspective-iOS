@@ -15,6 +15,7 @@ struct OversiktView: View {
 
     @State private var rows: [OverviewRow] = []
     @State private var isLoading = true
+    @State private var loadFailed = false
 
     private static let nameColumnWidth: CGFloat = 92
     private static let cellSpacing: CGFloat = 5
@@ -35,6 +36,11 @@ struct OversiktView: View {
             if isLoading {
                 ProgressView()
                     .tint(.apOrange)
+            } else if loadFailed {
+                APErrorState {
+                    loadFailed = false
+                    Task { await loadOverview() }
+                }
             } else if rows.allSatisfy({ $0.scores == nil }) {
                 emptyState
             } else {
@@ -181,6 +187,10 @@ struct OversiktView: View {
 
         let projectStore = ProjectStore()
         await projectStore.fetch()
+        guard projectStore.error == nil else {
+            loadFailed = true
+            return
+        }
         let projects = projectStore.projects
 
         if questionStore.questions.isEmpty {

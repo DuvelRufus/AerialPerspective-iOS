@@ -26,6 +26,11 @@ struct ProjectListView: View {
                 if projectStore.isLoading {
                     ProgressView()
                         .tint(.apOrange)
+                } else if projectStore.error != nil {
+                    APErrorState {
+                        projectStore.error = nil
+                        Task { await projectStore.fetch() }
+                    }
                 } else if projectStore.projects.isEmpty {
                     emptyState
                 } else {

@@ -15,6 +15,7 @@ struct AssessmentListView: View {
 
     @State private var assessmentStore = AssessmentStore()
     @State private var isCreating = false
+    @State private var createError: String? = nil
     @State private var answeredCounts: [UUID: Int] = [:]
 
     var body: some View {
@@ -24,6 +25,14 @@ struct AssessmentListView: View {
             if assessmentStore.isLoading {
                 ProgressView()
                     .tint(.apOrange)
+            } else if assessmentStore.error != nil {
+                APErrorState {
+                    assessmentStore.error = nil
+                    Task {
+                        await assessmentStore.fetch(projectId: project.id)
+                        await fetchAnsweredCounts()
+                    }
+                }
             } else if assessmentStore.assessments.isEmpty {
                 emptyState
             } else {
@@ -55,8 +64,22 @@ struct AssessmentListView: View {
             APPillButton(title: "Starta assessment 1") {
                 Task { await createFirst() }
             }
+            .disabled(isCreating)
+            .opacity(isCreating ? 0.5 : 1)
+            .overlay {
+                if isCreating {
+                    ProgressView().tint(.apOrange)
+                }
+            }
             .padding(.horizontal, 40)
             .padding(.top, 8)
+
+            if let createError {
+                Text(createError)
+                    .font(.caption)
+                    .foregroundStyle(.apRisk)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(.horizontal, 32)
     }
@@ -71,7 +94,22 @@ struct AssessmentListView: View {
                 APPillButton(title: "Ny assessment", style: .secondary) {
                     Task { await createNext() }
                 }
+                .disabled(isCreating)
+                .opacity(isCreating ? 0.5 : 1)
+                .overlay {
+                    if isCreating {
+                        ProgressView().tint(.apOrange)
+                    }
+                }
                 .padding(.top, 8)
+
+                if let createError {
+                    Text(createError)
+                        .font(.caption)
+                        .foregroundStyle(.apRisk)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -174,13 +212,25 @@ struct AssessmentListView: View {
 
     private func createFirst() async {
         isCreating = true
+        createError = nil
         defer { isCreating = false }
-        try? await assessmentStore.createOrFetchLatest(projectId: project.id)
+        do {
+            _ = try await assessmentStore.createOrFetchLatest(projectId: project.id)
+        } catch {
+            createError = error.localizedDescription
+            print("AssessmentListView: createFirst error: \(error)")
+        }
     }
 
     private func createNext() async {
         isCreating = true
+        createError = nil
         defer { isCreating = false }
-        try? await assessmentStore.createNext(projectId: project.id)
+        do {
+            _ = try await assessmentStore.createNext(projectId: project.id)
+        } catch {
+            createError = error.localizedDescription
+            print("AssessmentListView: createNext error: \(error)")
+        }
     }
 }

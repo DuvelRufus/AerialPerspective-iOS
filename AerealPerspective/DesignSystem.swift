@@ -211,6 +211,33 @@ struct APSectionHeader: View {
     }
 }
 
+// MARK: - APErrorState
+
+struct APErrorState: View {
+    var message: String = "Något gick fel. Kontrollera din anslutning."
+    var retryTitle: String = "Försök igen"
+    var onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 48))
+                .foregroundStyle(.apOrange)
+            Text("Kunde inte ladda")
+                .font(.headline)
+                .foregroundStyle(.apTextPrimary)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.apTextSecondary)
+                .multilineTextAlignment(.center)
+            APPillButton(title: retryTitle) { onRetry() }
+                .padding(.horizontal, 40)
+                .padding(.top, 8)
+        }
+        .padding(.horizontal, 32)
+    }
+}
+
 // MARK: - Haptic Modifier
 
 struct HapticModifier: ViewModifier {

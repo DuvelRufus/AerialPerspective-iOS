@@ -15,19 +15,25 @@ struct AerealPerspectiveApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if !hasAcceptedPrivacyPolicy {
-                PrivacyPolicyView(onAccept: { hasAcceptedPrivacyPolicy = true })
-            } else if authStore.isLoading {
-                ProgressView()
-            } else if authStore.user == nil {
-                AuthView(authStore: authStore)
-            } else {
-                ProjectListView(
-                    authStore: authStore,
-                    questionStore: questionStore
-                )
-                .task { await questionStore.fetch() }
+            Group {
+                if !hasAcceptedPrivacyPolicy {
+                    PrivacyPolicyView(onAccept: { hasAcceptedPrivacyPolicy = true })
+                } else if authStore.isLoading {
+                    ZStack {
+                        Color.apBackground.ignoresSafeArea()
+                        ProgressView().tint(.apOrange)
+                    }
+                } else if authStore.user == nil {
+                    AuthView(authStore: authStore)
+                } else {
+                    ProjectListView(
+                        authStore: authStore,
+                        questionStore: questionStore
+                    )
+                    .task { await questionStore.fetch() }
+                }
             }
+            .preferredColorScheme(.dark)
         }
     }
 }
