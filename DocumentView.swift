@@ -251,7 +251,7 @@ struct DocumentView: View {
                 .font(.subheadline)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .frame(minHeight: 44)
         .background(Color.apSurface)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal, 16)
@@ -269,41 +269,45 @@ struct DocumentView: View {
         onAdd: (() -> Void)?,
         onToggle: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 8) {
-            APSectionHeader(title: title)
-            if let count, count > 0 {
-                Text("\(count)")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.apOrange)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.apOrangeTint)
-                    .clipShape(Capsule())
-            }
-            Spacer()
-            if let onAdd {
-                Button(action: onAdd) {
-                    Image(systemName: "plus")
-                        .foregroundStyle(.apOrange)
-                        .font(.system(size: 15, weight: .medium))
-                        .padding(4)
-                }
-                .buttonStyle(.plain)
-                .haptic(.medium)
-            }
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.apTextTertiary)
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isExpanded)
-        }
-        .contentShape(Rectangle())
-        .haptic(.light)
-        .onTapGesture {
+        Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 onToggle()
             }
+        } label: {
+            HStack(spacing: 8) {
+                APSectionHeader(title: title)
+                if let count, count > 0 {
+                    Text("\(count)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.apOrange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.apOrangeTint)
+                        .clipShape(Capsule())
+                }
+                Spacer()
+                if let onAdd {
+                    Button(action: onAdd) {
+                        Image(systemName: "plus")
+                            .foregroundStyle(.apOrange)
+                            .font(.system(size: 15, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .haptic(.medium)
+                    .minTapTarget()
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.apTextTertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isExpanded)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .haptic(.light)
+        .minTapTarget()
     }
 
     // MARK: - Notes section
@@ -415,6 +419,7 @@ struct DocumentView: View {
                     .font(.caption)
             }
             .buttonStyle(.plain)
+            .minTapTarget()
         }
         .padding(.vertical, 8)
     }
@@ -478,6 +483,7 @@ struct DocumentView: View {
                     .font(.caption)
             }
             .buttonStyle(.plain)
+            .minTapTarget()
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
@@ -546,6 +552,7 @@ struct DocumentView: View {
                     .font(.caption)
             }
             .buttonStyle(.plain)
+            .minTapTarget()
         }
         .padding(.vertical, 8)
     }

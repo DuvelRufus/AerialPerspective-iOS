@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Supabase
 
 struct ResultView: View {
     var assessment: Assessment
@@ -17,6 +18,12 @@ struct ResultView: View {
 
     @State private var showInsights = false
     @State private var showPlan = false
+    @State private var previousScores: [DomainScore]? = nil
+
+    private var deltas: [Domain: Int]? {
+        guard let previousScores else { return nil }
+        return ScoringService.delta(current: domainScores, previous: previousScores)
+    }
 
     var body: some View {
         ZStack {
@@ -43,6 +50,7 @@ struct ResultView: View {
                 .padding(.bottom, 32)
             }
         }
+        .task { await loadPreviousScores() }
         .navigationTitle("Resultat – Assessment \(assessment.version)")
         .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.dark)
@@ -91,9 +99,14 @@ struct ResultView: View {
                 Text(ds.domain.rawValue.uppercased())
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.apTextSecondary)
-                Text("\(ds.score)")
-                    .font(.title.bold())
-                    .foregroundStyle(.apTextPrimary)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("\(ds.score)")
+                        .font(.title.bold())
+                        .foregroundStyle(.apTextPrimary)
+                    if let delta = deltas?[ds.domain] {
+                        deltaIndicator(delta)
+                    }
+                }
                 APScorePill(score: ds.score, level: ds.level)
             }
             .padding(.vertical, 16)
@@ -107,6 +120,53 @@ struct ResultView: View {
                 .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func deltaIndicator(_ delta: Int) -> some View {
+        Group {
+            if delta > 0 {
+                Text("▲ +\(delta)")
+                    .foregroundStyle(Color.apStrong)
+            } else if delta < 0 {
+                Text("▼ \(delta)")
+                    .foregroundStyle(Color.apRisk)
+            } else {
+                Text("– 0")
+                    .foregroundStyle(Color.apTextTertiary)
+            }
+        }
+        .font(.caption2.monospacedDigit())
+    }
+
+    // MARK: - Previous assessment
+
+    private func loadPreviousScores() async {
+        guard assessment.version > 1 else { return }
+        do {
+            let previous: Assessment = try await supabase
+                .from("assessments")
+                .select()
+                .eq("project_id", value: project.id)
+                .eq("version", value: assessment.version - 1)
+                .single()
+                .execute()
+                .value
+
+            let previousAnswerStore = AnswerStore()
+            await previousAnswerStore.fetch(assessmentId: previous.id)
+
+            if questionStore.questions.isEmpty {
+                await questionStore.fetch()
+            }
+
+            previousScores = ScoringService.compute(
+                answers: previousAnswerStore.answers,
+                questions: questionStore.questions,
+                options: questionStore.options
+            )
+        } catch {
+            print("ResultView: loadPreviousScores error: \(error)")
+        }
     }
 
     private func accentColor(for level: ScoreLevel) -> Color {

@@ -231,3 +231,20 @@ extension View {
         modifier(HapticModifier(style: style))
     }
 }
+
+// MARK: - Minimum Tap Target
+struct MinTapTargetModifier: ViewModifier {
+    var minSize: CGFloat = 44
+
+    func body(content: Content) -> some View {
+        content
+            .frame(minWidth: minSize, minHeight: minSize)
+            .contentShape(Rectangle())
+    }
+}
+
+extension View {
+    func minTapTarget(_ size: CGFloat = 44) -> some View {
+        modifier(MinTapTargetModifier(minSize: size))
+    }
+}
