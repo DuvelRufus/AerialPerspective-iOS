@@ -166,21 +166,6 @@ struct AssessmentView: View {
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    dismiss()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text("Tillbaka")
-                    }
-                    .foregroundStyle(.apOrange)
-                }
-            }
-        }
         .navigationDestination(isPresented: $showResult) {
             ResultView(
                 assessment: assessment,

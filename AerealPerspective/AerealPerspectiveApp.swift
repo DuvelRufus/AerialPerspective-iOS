@@ -26,7 +26,7 @@ struct AerealPerspectiveApp: App {
                 } else if authStore.user == nil {
                     AuthView(authStore: authStore)
                 } else {
-                    ProjectListView(
+                    RootTabView(
                         authStore: authStore,
                         questionStore: questionStore
                     )

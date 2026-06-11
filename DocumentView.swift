@@ -193,8 +193,6 @@ struct DocumentView: View {
                 }
             }
         }
-        .navigationTitle("Dokument")
-        .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)

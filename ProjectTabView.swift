@@ -11,25 +11,64 @@ import SwiftUI
 struct ProjectTabView: View {
     var project: Project
     var questionStore: QuestionStore
-    @State private var selectedTab = 0
+    @State private var selectedSection = 0
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            AssessmentListView(project: project, questionStore: questionStore)
-                .tabItem { Label("Assessments", systemImage: "chart.bar.doc.horizontal") }
-                .tag(0)
+        ZStack {
+            Color.apBackground.ignoresSafeArea()
+            VStack(spacing: 0) {
+                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Dokument"])
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
 
-            DocumentView(project: project)
-                .tabItem { Label("Dokument", systemImage: "doc.text") }
-                .tag(1)
+                if selectedSection == 0 {
+                    AssessmentListView(project: project, questionStore: questionStore)
+                } else {
+                    DocumentView(project: project)
+                }
+            }
         }
-        .tint(Color.apOrange)
-        .preferredColorScheme(.dark)
-        .toolbarColorScheme(.dark, for: .tabBar)
         .navigationTitle(project.name)
         .navigationBarTitleDisplayMode(.large)
-        .onChange(of: selectedTab) {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        .preferredColorScheme(.dark)
+        .toolbarBackground(Color.apBackground, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+    }
+}
+
+private struct APSegmentedControl: View {
+    @Binding var selection: Int
+    let options: [String]
+    @Namespace private var ns
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(options.indices, id: \.self) { i in
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        selection = i
+                    }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
+                    Text(options[i])
+                        .font(.subheadline.weight(selection == i ? .semibold : .regular))
+                        .foregroundStyle(selection == i ? Color.apTextPrimary : Color.apTextSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background {
+                            if selection == i {
+                                Capsule()
+                                    .fill(Color.apSurfaceElevated)
+                                    .matchedGeometryEffect(id: "seg", in: ns)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .padding(4)
+        .background(Capsule().fill(Color.apSurface))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
     }
 }

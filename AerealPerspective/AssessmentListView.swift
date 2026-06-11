@@ -39,7 +39,6 @@ struct AssessmentListView: View {
                 assessmentList
             }
         }
-        .navigationBarTitleDisplayMode(.large)
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
