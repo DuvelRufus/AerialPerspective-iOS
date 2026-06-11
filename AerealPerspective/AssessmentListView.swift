@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Supabase
 
 struct AssessmentListView: View {
     var project: Project
@@ -14,6 +15,7 @@ struct AssessmentListView: View {
 
     @State private var assessmentStore = AssessmentStore()
     @State private var isCreating = false
+    @State private var answeredCounts: [UUID: Int] = [:]
 
     var body: some View {
         ZStack {
@@ -32,7 +34,10 @@ struct AssessmentListView: View {
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .task { await assessmentStore.fetch(projectId: project.id) }
+        .task {
+            await assessmentStore.fetch(projectId: project.id)
+            await fetchAnsweredCounts()
+        }
     }
 
     private var emptyState: some View {
@@ -60,39 +65,7 @@ struct AssessmentListView: View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 ForEach(assessmentStore.assessments) { assessment in
-                    NavigationLink {
-                        AssessmentView(
-                            assessment: assessment,
-                            project: project,
-                            questionStore: questionStore
-                        )
-                    } label: {
-                        APCard {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Assessment \(assessment.version)")
-                                        .font(.title3.bold())
-                                        .foregroundStyle(.apTextPrimary)
-                                    Text(assessment.createdAt.formatted(date: .abbreviated, time: .omitted))
-                                        .font(.caption)
-                                        .foregroundStyle(.apTextSecondary)
-                                }
-                                Spacer()
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.apOrange)
-                                        .frame(width: 36, height: 36)
-                                    Text("\(assessment.version)")
-                                        .font(.subheadline.bold())
-                                        .foregroundStyle(.white)
-                                }
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    })
+                    assessmentRow(assessment)
                 }
 
                 APPillButton(title: "Ny assessment", style: .secondary) {
@@ -102,6 +75,87 @@ struct AssessmentListView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+        }
+    }
+
+    @ViewBuilder
+    private func assessmentRow(_ assessment: Assessment) -> some View {
+        let completed = isComplete(assessment)
+        NavigationLink {
+            if completed {
+                ResultView(
+                    assessment: assessment,
+                    project: project,
+                    questionStore: questionStore
+                )
+            } else {
+                AssessmentView(
+                    assessment: assessment,
+                    project: project,
+                    questionStore: questionStore
+                )
+            }
+        } label: {
+            APCard {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Assessment \(assessment.version)")
+                            .font(.title3.bold())
+                            .foregroundStyle(.apTextPrimary)
+                        Text(assessment.createdAt.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption)
+                            .foregroundStyle(.apTextSecondary)
+                        if !completed {
+                            Text("\(answeredCounts[assessment.id] ?? 0)/\(questionStore.questions.count)")
+                                .font(.caption)
+                                .foregroundStyle(.apTextTertiary)
+                        }
+                    }
+                    Spacer()
+                    if completed {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.apStrong)
+                    }
+                    ZStack {
+                        Circle()
+                            .fill(Color.apOrange)
+                            .frame(width: 36, height: 36)
+                        Text("\(assessment.version)")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        })
+    }
+
+    private func isComplete(_ assessment: Assessment) -> Bool {
+        let total = questionStore.questions.count
+        return total > 0 && (answeredCounts[assessment.id] ?? 0) >= total
+    }
+
+    private func fetchAnsweredCounts() async {
+        let ids = assessmentStore.assessments.map { $0.id.uuidString }
+        guard !ids.isEmpty else { return }
+        do {
+            let rows: [Answer] = try await supabase
+                .from("answers")
+                .select()
+                .in("assessment_id", values: ids)
+                .execute()
+                .value
+            var counts: [UUID: Int] = [:]
+            for row in rows where row.answerOptionId != nil {
+                counts[row.assessmentId, default: 0] += 1
+            }
+            answeredCounts = counts
+        } catch {
+            print("AssessmentListView: fetchAnsweredCounts error: \(error)")
         }
     }
 

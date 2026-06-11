@@ -12,13 +12,50 @@ import Supabase
 struct ResultView: View {
     var assessment: Assessment
     var project: Project
-    var domainScores: [DomainScore]
-    var answerStore: AnswerStore
     var questionStore: QuestionStore
+    var onDone: (() -> Void)?
 
+    private let selfLoads: Bool
+
+    @State private var domainScores: [DomainScore]
+    @State private var answerStore: AnswerStore
+    @State private var hasLoadedScores: Bool
     @State private var showInsights = false
     @State private var showPlan = false
     @State private var previousScores: [DomainScore]? = nil
+
+    init(
+        assessment: Assessment,
+        project: Project,
+        domainScores: [DomainScore],
+        answerStore: AnswerStore,
+        questionStore: QuestionStore,
+        onDone: (() -> Void)? = nil
+    ) {
+        self.assessment = assessment
+        self.project = project
+        self.questionStore = questionStore
+        self.onDone = onDone
+        self.selfLoads = false
+        _domainScores = State(initialValue: domainScores)
+        _answerStore = State(initialValue: answerStore)
+        _hasLoadedScores = State(initialValue: true)
+    }
+
+    init(
+        assessment: Assessment,
+        project: Project,
+        questionStore: QuestionStore
+    ) {
+        self.assessment = assessment
+        self.project = project
+        self.questionStore = questionStore
+        self.onDone = nil
+        self.selfLoads = true
+        _domainScores = State(initialValue: [])
+        _answerStore = State(initialValue: AnswerStore())
+        _hasLoadedScores = State(initialValue: false)
+    }
 
     private var deltas: [Domain: Int]? {
         guard let previousScores else { return nil }
@@ -28,7 +65,55 @@ struct ResultView: View {
     var body: some View {
         ZStack {
             Color.apBackground.ignoresSafeArea()
-            ScrollView {
+            if !hasLoadedScores {
+                ProgressView()
+                    .tint(.apOrange)
+            } else {
+                resultContent
+            }
+        }
+        .task {
+            if selfLoads && !hasLoadedScores {
+                await loadCurrentScores()
+            }
+            await loadPreviousScores()
+        }
+        .navigationTitle("Resultat – Assessment \(assessment.version)")
+        .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
+        .toolbarBackground(Color.apBackground, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            if let onDone {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Klar") { onDone() }
+                        .foregroundStyle(.apOrange)
+                        .haptic(.light)
+                }
+            }
+        }
+        .navigationDestination(isPresented: $showInsights) {
+            InsightsView(
+                assessment: assessment,
+                project: project,
+                domainScores: domainScores,
+                answerStore: answerStore,
+                questionStore: questionStore
+            )
+        }
+        .navigationDestination(isPresented: $showPlan) {
+            PlanView(
+                assessment: assessment,
+                project: project,
+                domainScores: domainScores,
+                answerStore: answerStore,
+                questionStore: questionStore
+            )
+        }
+    }
+
+    private var resultContent: some View {
+        ScrollView {
                 VStack(spacing: 32) {
                     RadarChart(scores: domainScores)
                         .frame(height: 300)
@@ -48,31 +133,6 @@ struct ResultView: View {
                     .padding(.horizontal, 20)
                 }
                 .padding(.bottom, 32)
-            }
-        }
-        .task { await loadPreviousScores() }
-        .navigationTitle("Resultat – Assessment \(assessment.version)")
-        .navigationBarTitleDisplayMode(.inline)
-        .preferredColorScheme(.dark)
-        .toolbarBackground(Color.apBackground, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .navigationDestination(isPresented: $showInsights) {
-            InsightsView(
-                assessment: assessment,
-                project: project,
-                domainScores: domainScores,
-                answerStore: answerStore,
-                questionStore: questionStore
-            )
-        }
-        .navigationDestination(isPresented: $showPlan) {
-            PlanView(
-                assessment: assessment,
-                project: project,
-                domainScores: domainScores,
-                answerStore: answerStore,
-                questionStore: questionStore
-            )
         }
     }
 
@@ -138,7 +198,20 @@ struct ResultView: View {
         .font(.caption2.monospacedDigit())
     }
 
-    // MARK: - Previous assessment
+    // MARK: - Score loading
+
+    private func loadCurrentScores() async {
+        await answerStore.fetch(assessmentId: assessment.id)
+        if questionStore.questions.isEmpty {
+            await questionStore.fetch()
+        }
+        domainScores = ScoringService.compute(
+            answers: answerStore.answers,
+            questions: questionStore.questions,
+            options: questionStore.options
+        )
+        hasLoadedScores = true
+    }
 
     private func loadPreviousScores() async {
         guard assessment.version > 1 else { return }

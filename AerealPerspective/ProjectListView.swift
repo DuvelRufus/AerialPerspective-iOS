@@ -14,6 +14,7 @@ struct ProjectListView: View {
 
     @State private var projectStore = ProjectStore()
     @State private var showNewProject = false
+    @State private var showOversikt = false
     @State private var isCreating = false
     @State private var projectToDelete: Project? = nil
 
@@ -47,6 +48,16 @@ struct ProjectListView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showOversikt = true
+                    } label: {
+                        Image(systemName: "square.grid.3x3")
+                            .foregroundStyle(.apOrange)
+                            .font(.title3)
+                    }
+                    .haptic(.light)
+                }
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Logga ut") {
                         Task { try? await authStore.signOut() }
                     }
@@ -54,6 +65,9 @@ struct ProjectListView: View {
                     .foregroundStyle(.apTextTertiary)
                     .haptic(.light)
                 }
+            }
+            .navigationDestination(isPresented: $showOversikt) {
+                OversiktView(questionStore: questionStore)
             }
             .sheet(isPresented: $showNewProject) {
                 NewProjectSheet { name, value, unit in

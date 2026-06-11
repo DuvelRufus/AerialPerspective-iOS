@@ -119,31 +119,41 @@ struct AssessmentView: View {
         .gesture(swipeGesture)
         .safeAreaInset(edge: .bottom) {
             if !allQuestions.isEmpty {
-                HStack(spacing: 12) {
-                    APPillButton(title: "Föregående", action: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                            navigatingForward = false
-                            currentQuestionIndex -= 1
-                        }
-                    }, style: .secondary)
-                    .disabled(currentQuestionIndex == 0)
-                    .opacity(currentQuestionIndex == 0 ? 0.4 : 1)
-
-                    let isLast = currentQuestionIndex == allQuestions.count - 1
-                    let lastAnswered = currentQuestion.map { answerStore.answers[$0.id] != nil } ?? false
-                    if isLast {
-                        APPillButton(title: "Se resultat", action: { showResult = true })
-                            .disabled(!lastAnswered)
-                            .opacity(!lastAnswered ? 0.5 : 1)
-                    } else {
-                        APPillButton(title: "Nästa", action: {
+                let isLast = currentQuestionIndex == allQuestions.count - 1
+                let unanswered = allQuestions.filter { answerStore.answers[$0.id] == nil }.count
+                let allAnswered = unanswered == 0
+                VStack(spacing: 6) {
+                    HStack(spacing: 12) {
+                        APPillButton(title: "Föregående", action: {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                navigatingForward = true
-                                currentQuestionIndex += 1
+                                navigatingForward = false
+                                currentQuestionIndex -= 1
                             }
-                        })
+                        }, style: .secondary)
+                        .disabled(currentQuestionIndex == 0)
+                        .opacity(currentQuestionIndex == 0 ? 0.4 : 1)
+
+                        if isLast {
+                            APPillButton(title: "Se resultat", action: { showResult = true })
+                                .disabled(!allAnswered)
+                                .opacity(allAnswered ? 1 : 0.5)
+                        } else {
+                            APPillButton(title: "Nästa", action: {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                    navigatingForward = true
+                                    currentQuestionIndex += 1
+                                }
+                            })
+                        }
+                    }
+
+                    if isLast && !allAnswered {
+                        Text(unanswered == 1 ? "1 fråga kvar" : "\(unanswered) frågor kvar")
+                            .font(.caption)
+                            .foregroundStyle(.apTextTertiary)
+                            .frame(maxWidth: .infinity)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -177,7 +187,8 @@ struct AssessmentView: View {
                 project: project,
                 domainScores: domainScores,
                 answerStore: answerStore,
-                questionStore: questionStore
+                questionStore: questionStore,
+                onDone: { dismiss() }
             )
         }
         .task {
