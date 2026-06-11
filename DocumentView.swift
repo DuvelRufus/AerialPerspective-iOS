@@ -211,6 +211,22 @@ struct DocumentView: View {
         }
     }
 
+    private func hasActions(_ domain: Domain) -> Bool {
+        actionStore.actions.contains { $0.domain == domain.rawValue }
+    }
+
+    private func isCompact(_ domain: Domain) -> Bool {
+        domainScores[domain]?.level == .strong && !hasActions(domain)
+    }
+
+    private var fullCardDomains: [Domain] {
+        sortedDomains.filter { !isCompact($0) }
+    }
+
+    private var compactDomains: [Domain] {
+        sortedDomains.filter { isCompact($0) }
+    }
+
     // MARK: Body
 
     var body: some View {
@@ -233,8 +249,15 @@ struct DocumentView: View {
                             if latestAssessment == nil {
                                 noAssessmentState
                             } else {
-                                ForEach(sortedDomains, id: \.self) { domain in
+                                ForEach(fullCardDomains, id: \.self) { domain in
                                     domainCard(domain)
+                                }
+                                if !compactDomains.isEmpty {
+                                    APSectionHeader(title: "STARKA DOMÄNER")
+                                        .padding(.top, 12)
+                                    ForEach(compactDomains, id: \.self) { domain in
+                                        compactDomainRow(domain)
+                                    }
                                 }
                             }
 
@@ -359,14 +382,7 @@ struct DocumentView: View {
                 }
 
                 if isWeak || !domainActions.isEmpty {
-                    APSectionHeader(title: "ÅTGÄRDER")
-                        .padding(.top, 2)
-
-                    if domainActions.isEmpty {
-                        Text("Inga åtgärder ännu")
-                            .font(.caption)
-                            .foregroundStyle(.apTextTertiary)
-                    } else {
+                    if !domainActions.isEmpty {
                         VStack(spacing: 0) {
                             ForEach(domainActions) { action in
                                 actionRow(action)
@@ -396,6 +412,36 @@ struct DocumentView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color.apSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func compactDomainRow(_ domain: Domain) -> some View {
+        let ds = domainScores[domain]
+        return HStack(spacing: 0) {
+            Rectangle()
+                .fill(levelColor(ds?.level))
+                .frame(width: 4)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(domain.rawValue.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.apTextSecondary)
+                Spacer()
+                Text(ds.map { "\($0.score)" } ?? "–")
+                    .font(.title2.bold())
+                    .foregroundStyle(.apTextPrimary)
+                if let ds {
+                    levelPill(ds.level)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
         }
         .background(Color.apSurface)
         .overlay(
@@ -623,15 +669,16 @@ struct DocumentView: View {
                 }
             }
             Spacer()
-            Button { pendingDelete = .decision(decision) } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(Color.apRisk.opacity(0.6))
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .minTapTarget()
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(role: .destructive) {
+                pendingDelete = .decision(decision)
+            } label: {
+                Label("Radera", systemImage: "trash")
+            }
+        }
     }
 
     // MARK: - Links section
@@ -687,19 +734,19 @@ struct DocumentView: View {
                 .padding(.vertical, 3)
                 .background(Color.apOrangeTint)
                 .clipShape(Capsule())
-            Button { pendingDelete = .link(link) } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(Color.apRisk.opacity(0.6))
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .minTapTarget()
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture {
             if let url = URL(string: link.url) {
                 UIApplication.shared.open(url)
+            }
+        }
+        .contextMenu {
+            Button(role: .destructive) {
+                pendingDelete = .link(link)
+            } label: {
+                Label("Radera", systemImage: "trash")
             }
         }
     }
@@ -756,15 +803,16 @@ struct DocumentView: View {
                 }
             }
             Spacer()
-            Button { pendingDelete = .contact(contact) } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(Color.apRisk.opacity(0.6))
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .minTapTarget()
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(role: .destructive) {
+                pendingDelete = .contact(contact)
+            } label: {
+                Label("Radera", systemImage: "trash")
+            }
+        }
     }
 
     // MARK: - Fetch
