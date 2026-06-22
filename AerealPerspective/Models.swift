@@ -143,6 +143,8 @@ struct Insight: Identifiable, Codable {
 // MARK: - Plan
 
 struct PlanAction: Codable {
+    // Optional so legacy plans persisted without an id decode without error.
+    var id: UUID?
     var text: String
     var domain: String?
 }
