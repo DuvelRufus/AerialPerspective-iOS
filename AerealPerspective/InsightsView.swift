@@ -30,10 +30,13 @@ struct InsightsView: View {
         .navigationTitle("Insikter")
         .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.dark)
-        .task { await insightStore.fetch(assessmentId: assessment.id) }
+        .task {
+            await insightStore.fetch(assessmentId: assessment.id)
+            await actionStore.fetch(projectId: project.id)
+        }
         .sheet(item: $insightForAction) { insight in
             CreateActionSheet(insight: insight, domainScores: domainScores, insights: insightStore.insights) { title, domain in
-                Task { await createAction(title: title, domain: domain) }
+                Task { await createAction(title: title, domain: domain, insightId: insight.id) }
             }
         }
     }
@@ -106,12 +109,13 @@ struct InsightsView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 14)
             Spacer(minLength: 0)
+            let isLinked = actionStore.actions.contains { $0.insightId == insight.id }
             Button {
                 insightForAction = insight
             } label: {
-                Image(systemName: "plus.circle")
+                Image(systemName: isLinked ? "checkmark.circle.fill" : "plus.circle")
                     .font(.title3)
-                    .foregroundStyle(.apOrange)
+                    .foregroundStyle(isLinked ? Color.apStrong : Color.apOrange)
             }
             .buttonStyle(.plain)
             .haptic(.medium)
@@ -157,13 +161,14 @@ struct InsightsView: View {
         }
     }
 
-    private func createAction(title: String, domain: Domain) async {
+    private func createAction(title: String, domain: Domain, insightId: UUID?) async {
         do {
             try await actionStore.add(
                 projectId: project.id,
                 domain: domain.rawValue,
                 title: title,
                 assessmentId: assessment.id,
+                insightId: insightId,
                 createdFromScore: domainScores.first { $0.domain == domain }?.score
             )
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()

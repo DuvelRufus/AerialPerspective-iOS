@@ -15,6 +15,7 @@ struct ProjectAction: Identifiable, Codable {
     var title: String
     var status: String
     var assessmentId: UUID?
+    var insightId: UUID?
     var createdFromScore: Int?
     var createdAt: Date
 
@@ -22,6 +23,7 @@ struct ProjectAction: Identifiable, Codable {
         case id, domain, title, status
         case projectId = "project_id"
         case assessmentId = "assessment_id"
+        case insightId = "insight_id"
         case createdFromScore = "created_from_score"
         case createdAt = "created_at"
     }
@@ -34,6 +36,7 @@ private struct NewAction: Encodable {
     let domain: String
     let title: String
     let assessment_id: UUID?
+    let insight_id: UUID?
     let created_from_score: Int?
 }
 
@@ -67,6 +70,7 @@ class ActionStore {
         domain: String,
         title: String,
         assessmentId: UUID?,
+        insightId: UUID? = nil,
         createdFromScore: Int?
     ) async throws {
         let inserted: ProjectAction = try await supabase
@@ -76,6 +80,7 @@ class ActionStore {
                 domain: domain,
                 title: title,
                 assessment_id: assessmentId,
+                insight_id: insightId,
                 created_from_score: createdFromScore
             ))
             .select()
