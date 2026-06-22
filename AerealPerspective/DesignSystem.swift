@@ -32,6 +32,9 @@ extension Color {
     static let apNote             = Color(hex: "#F59E0B")
     static let apStrong           = Color(hex: "#22C55E")
 
+    // Borders & dividers
+    static let apHairline         = Color.white.opacity(0.08)
+
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
@@ -61,6 +64,19 @@ extension ShapeStyle where Self == Color {
     static var apRisk:            Color { Color.apRisk }
     static var apNote:            Color { Color.apNote }
     static var apStrong:          Color { Color.apStrong }
+    static var apHairline:        Color { Color.apHairline }
+}
+
+// MARK: - Gradients
+
+extension LinearGradient {
+    static let apOrangeGradient = LinearGradient(
+        stops: [
+            .init(color: Color(hex: "#FF8C42"), location: 0),
+            .init(color: Color(hex: "#F97316"), location: 0.5),
+            .init(color: Color(hex: "#C2410C"), location: 1),
+        ],
+        startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
 // MARK: - APPillButton
@@ -77,40 +93,62 @@ private struct APButtonPressStyle: ButtonStyle {
     }
 }
 
+// Press feedback for navigating list rows. Reads isPressed only — no gestures,
+// so it cannot swallow NavigationLink taps (List rows broke with simultaneousGesture).
+struct APRowPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .brightness(configuration.isPressed ? 0.04 : 0)
+            .shadow(color: configuration.isPressed ? Color.apOrange.opacity(0.25) : .clear, radius: 10)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
 struct APPillButton: View {
     let title: String
     let action: () -> Void
     var style: APPillButtonStyle = .primary
+    var isLoading: Bool = false
+    var haptic: UIImpactFeedbackGenerator.FeedbackStyle = .medium
 
     var body: some View {
         Button {
             action()
         } label: {
-            Text(title)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(labelColor)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background { Rectangle().fill(background) }
-                .overlay(alignment: .top) {
-                    if style == .primary {
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.125), .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 27)
-                        .allowsHitTesting(false)
-                    }
+            ZStack {
+                if isLoading {
+                    ProgressView().tint(.white)
+                } else {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(labelColor)
+                        .transition(.opacity)
                 }
-                .overlay {
-                    Capsule()
-                        .strokeBorder(borderColor, lineWidth: borderWidth)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background { Rectangle().fill(background) }
+            .overlay(alignment: .top) {
+                if style == .primary && !isLoading {
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.125), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 27)
+                    .allowsHitTesting(false)
                 }
-                .clipShape(Capsule())
+            }
+            .overlay {
+                Capsule()
+                    .strokeBorder(borderColor, lineWidth: borderWidth)
+            }
+            .clipShape(Capsule())
         }
         .buttonStyle(APButtonPressStyle())
-        .haptic(.medium)
+        .disabled(isLoading)
+        .haptic(haptic)
     }
 
     private var labelColor: Color {
@@ -124,17 +162,7 @@ struct APPillButton: View {
     private var background: AnyShapeStyle {
         switch style {
         case .primary:
-            return AnyShapeStyle(
-                LinearGradient(
-                    stops: [
-                        .init(color: Color(hex: "#FF8C42"), location: 0),
-                        .init(color: Color(hex: "#F97316"), location: 0.5),
-                        .init(color: Color(hex: "#C2410C"), location: 1),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+            return AnyShapeStyle(LinearGradient.apOrangeGradient)
         case .secondary:
             return AnyShapeStyle(Color.apSurfaceElevated)
         case .destructive:
@@ -143,7 +171,7 @@ struct APPillButton: View {
     }
 
     private var borderColor: Color {
-        style == .secondary ? Color.white.opacity(0.08) : .clear
+        style == .secondary ? Color.apHairline : .clear
     }
 
     private var borderWidth: CGFloat {
@@ -167,7 +195,7 @@ struct APCard<Content: View>: View {
             .background(.ultraThinMaterial)
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                    .strokeBorder(Color.apHairline, lineWidth: 0.5)
             )
             .clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -178,9 +206,10 @@ struct APCard<Content: View>: View {
 struct APScorePill: View {
     let score: Int
     let level: ScoreLevel
+    var label: String? = nil
 
     var body: some View {
-        Text("\(score)")
+        Text(label ?? "\(score)")
             .font(.caption.monospacedDigit().weight(.semibold))
             .foregroundStyle(textColor)
             .padding(.horizontal, 8)

@@ -44,6 +44,9 @@ struct EdgeFunctionService {
         var title: String
         var body: String
         var risk_level: String
+        // Optional: absent while the deployed function predates domain tagging.
+        var domain: String?
+        var suggested_action: String?
     }
 
     // MARK: - Public API
@@ -80,6 +83,8 @@ struct EdgeFunctionService {
                 title: r.title,
                 content: r.body,
                 riskLevel: RiskLevel(rawValue: r.risk_level) ?? .note,
+                domain: r.domain,
+                suggestedAction: r.suggested_action,
                 createdAt: Date()
             )
         }

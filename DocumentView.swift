@@ -387,7 +387,7 @@ struct DocumentView: View {
                             ForEach(domainActions) { action in
                                 actionRow(action)
                                 if action.id != domainActions.last?.id {
-                                    Divider().background(Color.white.opacity(0.05))
+                                    Divider().background(Color.apHairline)
                                 }
                             }
                         }
@@ -416,7 +416,7 @@ struct DocumentView: View {
         .background(Color.apSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                .strokeBorder(Color.apHairline, lineWidth: 0.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -446,7 +446,7 @@ struct DocumentView: View {
         .background(Color.apSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                .strokeBorder(Color.apHairline, lineWidth: 0.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -580,7 +580,7 @@ struct DocumentView: View {
 
                 if notesExpanded {
                     Divider()
-                        .background(Color.white.opacity(0.06))
+                        .background(Color.apHairline)
                         .padding(.vertical, 10)
 
                     ZStack(alignment: .topLeading) {
@@ -641,7 +641,7 @@ struct DocumentView: View {
                             ForEach(filteredDecisions) { decision in
                                 decisionRow(decision)
                                 if decision.id != filteredDecisions.last?.id {
-                                    Divider().background(Color.white.opacity(0.05))
+                                    Divider().background(Color.apHairline)
                                 }
                             }
                         }
@@ -704,7 +704,7 @@ struct DocumentView: View {
                             ForEach(filteredLinks) { link in
                                 linkRow(link)
                                 if link.id != filteredLinks.last?.id {
-                                    Divider().background(Color.white.opacity(0.05))
+                                    Divider().background(Color.apHairline)
                                 }
                             }
                         }
@@ -774,7 +774,7 @@ struct DocumentView: View {
                             ForEach(filteredContacts) { contact in
                                 contactRow(contact)
                                 if contact.id != filteredContacts.last?.id {
-                                    Divider().background(Color.white.opacity(0.05))
+                                    Divider().background(Color.apHairline)
                                 }
                             }
                         }

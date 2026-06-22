@@ -189,12 +189,12 @@ struct AssessmentView: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.white.opacity(0.08))
+                        .fill(Color.apHairline)
                     Capsule()
                         .fill(Color.apOrange)
                         .frame(
                             width: allQuestions.isEmpty ? 0 :
-                                geo.size.width * CGFloat(currentQuestionIndex) / CGFloat(allQuestions.count)
+                                geo.size.width * CGFloat(currentQuestionIndex + 1) / CGFloat(allQuestions.count)
                         )
                         .animation(.spring(), value: currentQuestionIndex)
                 }
@@ -280,20 +280,10 @@ struct AssessmentView: View {
             .padding(.vertical, 16)
             .background {
                 if isSelected {
-                    shape.fill(
-                        LinearGradient(
-                            stops: [
-                                .init(color: Color(hex: "#FF8C42"), location: 0),
-                                .init(color: Color(hex: "#F97316"), location: 0.5),
-                                .init(color: Color(hex: "#C2410C"), location: 1),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    shape.fill(LinearGradient.apOrangeGradient)
                 } else {
                     shape.fill(Color.apSurfaceElevated)
-                        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+                        .overlay(shape.strokeBorder(Color.apHairline, lineWidth: 1))
                 }
             }
             .shadow(color: isSelected ? Color.apOrange.opacity(0.4) : .clear, radius: 8)

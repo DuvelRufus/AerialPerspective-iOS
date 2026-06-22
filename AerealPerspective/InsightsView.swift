@@ -32,7 +32,7 @@ struct InsightsView: View {
         .preferredColorScheme(.dark)
         .task { await insightStore.fetch(assessmentId: assessment.id) }
         .sheet(item: $insightForAction) { insight in
-            CreateActionSheet(insight: insight, domainScores: domainScores) { title, domain in
+            CreateActionSheet(insight: insight, domainScores: domainScores, insights: insightStore.insights) { title, domain in
                 Task { await createAction(title: title, domain: domain) }
             }
         }
@@ -121,7 +121,7 @@ struct InsightsView: View {
         .background(Color.apSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+                .strokeBorder(Color.apHairline, lineWidth: 0.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -130,10 +130,11 @@ struct InsightsView: View {
         APPillButton(title: label, action: {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             Task { await generate() }
-        }, style: style)
+        }, style: style, isLoading: isGenerating)
     }
 
     private func generate() async {
+        guard !isGenerating else { return }
         print("InsightsView: generate() start – assessment \(assessment.id)")
         errorMessage = nil
         isGenerating = true
@@ -187,22 +188,32 @@ struct InsightsView: View {
 private struct CreateActionSheet: View {
     let insight: Insight
     let domainScores: [DomainScore]
+    let insights: [Insight]
     let onSave: (String, Domain) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var domain: Domain
+    @State private var selectedSuggestionId: UUID?
 
     init(
         insight: Insight,
         domainScores: [DomainScore],
+        insights: [Insight],
         onSave: @escaping (String, Domain) -> Void
     ) {
         self.insight = insight
         self.domainScores = domainScores
+        self.insights = insights
         self.onSave = onSave
-        _title = State(initialValue: insight.title ?? "")
-        _domain = State(initialValue: domainScores.min(by: { $0.score < $1.score })?.domain ?? .team)
+        _title = State(initialValue: insight.suggestedAction ?? insight.title ?? "")
+        _domain = State(initialValue: insight.domain.flatMap(Domain.init(rawValue:))
+            ?? domainScores.min(by: { $0.score < $1.score })?.domain ?? .team)
+        _selectedSuggestionId = State(initialValue: insight.suggestedAction != nil ? insight.id : nil)
+    }
+
+    private var suggestions: [Insight] {
+        insights.filter { $0.domain == domain.rawValue && $0.suggestedAction != nil }
     }
 
     var body: some View {
@@ -218,6 +229,15 @@ private struct CreateActionSheet: View {
                             .padding()
                             .background(Color.apSurface)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    if !suggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            APSectionHeader(title: "FÖRSLAG FRÅN INSIKTER")
+                            ForEach(suggestions) { suggestion in
+                                suggestionRow(suggestion)
+                            }
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -258,5 +278,35 @@ private struct CreateActionSheet: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
         .presentationDetents([.medium])
+    }
+
+    private func suggestionRow(_ suggestion: Insight) -> some View {
+        let isSelected = selectedSuggestionId == suggestion.id
+        return Button {
+            title = suggestion.suggestedAction ?? ""
+            selectedSuggestionId = suggestion.id
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.caption)
+                    .foregroundStyle(.apOrange)
+                Text(suggestion.suggestedAction ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.apTextPrimary)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.apSurfaceElevated)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isSelected ? Color.apOrange : Color.apHairline,
+                                  lineWidth: isSelected ? 1 : 0.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .haptic(.light)
     }
 }

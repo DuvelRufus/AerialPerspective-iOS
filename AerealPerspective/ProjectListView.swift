@@ -16,6 +16,7 @@ struct ProjectListView: View {
     @State private var showNewProject = false
     @State private var isCreating = false
     @State private var projectToDelete: Project? = nil
+    @State private var selectedProject: Project? = nil
 
     var body: some View {
         NavigationStack {
@@ -50,6 +51,7 @@ struct ProjectListView: View {
                             .foregroundStyle(.apOrange)
                             .font(.title3)
                     }
+                    .haptic(.light)
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Logga ut") {
@@ -95,12 +97,13 @@ struct ProjectListView: View {
     private var projectList: some View {
         List {
             ForEach(projectStore.projects) { project in
-                NavigationLink(
-                    destination: ProjectTabView(
-                        project: project,
-                        questionStore: questionStore
-                    )
-                ) {
+                // Programmatic navigation: NavigationLink inside List never
+                // propagates isPressed to a ButtonStyle, so a plain Button
+                // drives both the press effect and the haptic.
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    selectedProject = project
+                } label: {
                     HStack(spacing: 0) {
                         Rectangle()
                             .fill(Color.apOrange)
@@ -124,11 +127,11 @@ struct ProjectListView: View {
                     .background(Color.apSurface)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                            .strokeBorder(Color.apHairline, lineWidth: 0.5)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(APRowPressStyle())
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -144,6 +147,10 @@ struct ProjectListView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .refreshable { await projectStore.fetch() }
+        .navigationDestination(item: $selectedProject) { project in
+            ProjectTabView(project: project, questionStore: questionStore)
+        }
         .confirmationDialog(
             projectToDelete.map { "Radera \($0.name)?" } ?? "",
             isPresented: Binding(

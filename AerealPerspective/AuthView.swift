@@ -61,7 +61,7 @@ struct AuthView: View {
                         Text("Aerial Perspective")
                             .font(.title3)
                             .foregroundStyle(.apTextSecondary)
-                        Text("Team assessment för Product Owners and Project Managers")
+                        Text("Team assessment för Product Owners och Project Managers")
                             .font(.subheadline)
                             .foregroundStyle(.apTextTertiary)
                             .multilineTextAlignment(.center)
@@ -106,12 +106,11 @@ struct AuthView: View {
                             .multilineTextAlignment(.center)
                     }
 
-                    LoadingPillButton(
+                    APPillButton(
                         title: isSignUp ? "Skapa konto" : "Logga in",
+                        action: { Task { await submit() } },
                         isLoading: isLoading
-                    ) {
-                        Task { await submit() }
-                    }
+                    )
 
                     Button(isSignUp ? "Har redan konto? Logga in" : "Inget konto? Skapa ett") {
                         isSignUp.toggle()
@@ -150,7 +149,7 @@ struct AuthView: View {
                 .fill(Color.apSurface)
             Capsule()
                 .strokeBorder(
-                    isFocused ? Color.apOrange : Color.white.opacity(0.06),
+                    isFocused ? Color.apOrange : Color.apHairline,
                     lineWidth: 1
                 )
                 .animation(.easeInOut(duration: 0.2), value: isFocused)
@@ -187,58 +186,6 @@ struct AuthView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-}
-
-private struct LoadingPillButton: View {
-    let title: String
-    let isLoading: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button {
-            action()
-        } label: {
-            ZStack {
-                if isLoading {
-                    ProgressView().tint(.white)
-                } else {
-                    Text(title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .transition(.opacity)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .background {
-                Rectangle().fill(
-                    LinearGradient(
-                        stops: [
-                            .init(color: Color(hex: "#FF8C42"), location: 0),
-                            .init(color: Color(hex: "#F97316"), location: 0.5),
-                            .init(color: Color(hex: "#C2410C"), location: 1),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            }
-            .overlay(alignment: .top) {
-                if !isLoading {
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.125), .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 27)
-                    .allowsHitTesting(false)
-                }
-            }
-            .clipShape(Capsule())
-        }
-        .disabled(isLoading)
-        .haptic(.medium)
     }
 }
 

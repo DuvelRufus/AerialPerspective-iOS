@@ -87,6 +87,7 @@ struct OversiktView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
         }
+        .refreshable { await loadOverview(showSpinner: false) }
     }
 
     // MARK: - Heatmap
@@ -136,11 +137,11 @@ struct OversiktView: View {
             .background(Color.apSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+                    .strokeBorder(Color.apHairline, lineWidth: 0.5)
             )
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(APRowPressStyle())
         .haptic(.light)
     }
 
@@ -191,8 +192,8 @@ struct OversiktView: View {
 
     // MARK: - Data
 
-    private func loadOverview() async {
-        isLoading = true
+    private func loadOverview(showSpinner: Bool = true) async {
+        if showSpinner { isLoading = true }
         defer { isLoading = false }
 
         let projectStore = ProjectStore()

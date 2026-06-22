@@ -90,9 +90,9 @@ struct AssessmentListView: View {
                     assessmentRow(assessment)
                 }
 
-                APPillButton(title: "Ny assessment", style: .secondary) {
+                APPillButton(title: "Ny assessment", action: {
                     Task { await createNext() }
-                }
+                }, style: .secondary)
                 .disabled(isCreating)
                 .opacity(isCreating ? 0.5 : 1)
                 .overlay {
@@ -112,6 +112,10 @@ struct AssessmentListView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+        }
+        .refreshable {
+            await assessmentStore.fetch(projectId: project.id)
+            await fetchAnsweredCounts()
         }
     }
 
@@ -165,7 +169,7 @@ struct AssessmentListView: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(APRowPressStyle())
         .simultaneousGesture(TapGesture().onEnded {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         })

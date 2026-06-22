@@ -21,7 +21,7 @@ enum Domain: String, CaseIterable, Codable {
 
 // MARK: - Project
 
-struct Project: Identifiable, Codable {
+struct Project: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var userId: UUID?
@@ -123,6 +123,9 @@ struct Insight: Identifiable, Codable {
     var title: String?
     var content: String?
     var riskLevel: RiskLevel?
+    // String, not Domain, so an unexpected DB value can't fail decoding.
+    var domain: String?
+    var suggestedAction: String?
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -131,15 +134,36 @@ struct Insight: Identifiable, Codable {
         case title
         case content
         case riskLevel = "risk_level"
+        case domain
+        case suggestedAction = "suggested_action"
         case createdAt = "created_at"
     }
 }
 
 // MARK: - Plan
 
+struct PlanAction: Codable {
+    var text: String
+    var domain: String?
+}
+
 struct PlanPhase: Codable {
     var focus: String
-    var actions: [String]
+    var actions: [PlanAction]
+
+    enum CodingKeys: String, CodingKey { case focus, actions }
+
+    // Legacy plans persisted in JSONB store actions as [String].
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        focus = try container.decode(String.self, forKey: .focus)
+        if let new = try? container.decode([PlanAction].self, forKey: .actions) {
+            actions = new
+        } else {
+            let legacy = try container.decode([String].self, forKey: .actions)
+            actions = legacy.map { PlanAction(text: $0, domain: nil) }
+        }
+    }
 }
 
 struct PlanResult: Codable {

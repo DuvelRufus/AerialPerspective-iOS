@@ -56,12 +56,16 @@ private struct InsightInsert: Encodable {
     let title: String?
     let content: String?
     let risk_level: String?
+    let domain: String?
+    let suggested_action: String?
 
     init(from insight: Insight, assessmentId: UUID) {
         self.assessment_id = assessmentId
         self.title = insight.title
         self.content = insight.content
         self.risk_level = insight.riskLevel?.rawValue
+        self.domain = insight.domain
+        self.suggested_action = insight.suggestedAction
     }
 }
 

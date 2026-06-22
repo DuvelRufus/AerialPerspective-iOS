@@ -69,6 +69,6 @@ private struct APSegmentedControl: View {
         }
         .padding(4)
         .background(Capsule().fill(Color.apSurface))
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+        .overlay(Capsule().strokeBorder(Color.apHairline, lineWidth: 0.5))
     }
 }

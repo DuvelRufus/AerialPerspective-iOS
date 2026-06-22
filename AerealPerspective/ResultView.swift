@@ -123,12 +123,12 @@ struct ResultView: View {
                     bentoGrid
 
                     VStack(spacing: 12) {
-                        APPillButton(title: "Insikter") {
+                        APPillButton(title: "Insikter", action: {
                             showInsights = true
-                        }
-                        APPillButton(title: "30-60-90 Plan", style: .secondary) {
+                        }, haptic: .light)
+                        APPillButton(title: "30-60-90 Plan", action: {
                             showPlan = true
-                        }
+                        }, style: .secondary, haptic: .light)
                     }
                     .padding(.horizontal, 20)
                 }
@@ -165,9 +165,11 @@ struct ResultView: View {
                         .foregroundStyle(.apTextPrimary)
                     if let delta = deltas?[ds.domain] {
                         deltaIndicator(delta)
+                    } else if previousScores == nil {
+                        deltaIndicator(0).hidden()
                     }
                 }
-                APScorePill(score: ds.score, level: ds.level)
+                APScorePill(score: ds.score, level: ds.level, label: levelWord(ds.level))
             }
             .padding(.vertical, 16)
             .padding(.horizontal, 16)
@@ -177,7 +179,7 @@ struct ResultView: View {
         .background(Color.apSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                .strokeBorder(Color.apHairline, lineWidth: 0.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -247,6 +249,14 @@ struct ResultView: View {
         case .risk:   return Color.apRisk
         case .note:   return Color.apNote
         case .strong: return Color.apStrong
+        }
+    }
+
+    private func levelWord(_ level: ScoreLevel) -> String {
+        switch level {
+        case .risk:   return "Risk"
+        case .note:   return "Bevaka"
+        case .strong: return "Starkt"
         }
     }
 }
