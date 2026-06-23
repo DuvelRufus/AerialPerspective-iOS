@@ -61,6 +61,7 @@ struct AssessmentView: View {
 
     @State private var answerStore = AnswerStore()
     @State private var currentQuestionIndex = 0
+    @State private var isAdvancing = false
     @State private var navigatingForward = true
     @State private var glowOptionId: UUID? = nil
     @State private var showResult = false
@@ -119,7 +120,7 @@ struct AssessmentView: View {
         .gesture(swipeGesture)
         .safeAreaInset(edge: .bottom) {
             if !allQuestions.isEmpty {
-                let isLast = currentQuestionIndex == allQuestions.count - 1
+                let isLast = currentQuestionIndex >= allQuestions.count - 1
                 let unanswered = allQuestions.filter { answerStore.answers[$0.id] == nil }.count
                 let allAnswered = unanswered == 0
                 VStack(spacing: 6) {
@@ -140,12 +141,17 @@ struct AssessmentView: View {
                                 .opacity(allAnswered ? 1 : 0.5)
                         } else {
                             APPillButton(title: "Nästa", action: {
+                                guard !isAdvancing else { return }
+                                isAdvancing = true
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                                     navigatingForward = true
-                                    currentQuestionIndex += 1
+                                    currentQuestionIndex = min(currentQuestionIndex + 1, allQuestions.count - 1)
+                                } completion: {
+                                    isAdvancing = false
                                 }
                             })
+                            .disabled(isAdvancing)
                         }
                     }
 
@@ -179,6 +185,13 @@ struct AssessmentView: View {
         .task {
             await answerStore.fetch(assessmentId: assessment.id)
             currentQuestionIndex = findStartingIndex()
+        }
+        .onChange(of: currentQuestionIndex) { _, _ in
+            // Safety net: if the index lands out of range, snap to the last
+            // question rather than rendering a blank screen via [safe:].
+            if currentQuestion == nil && !allQuestions.isEmpty {
+                currentQuestionIndex = allQuestions.count - 1
+            }
         }
     }
 
@@ -318,11 +331,15 @@ struct AssessmentView: View {
             glowOptionId = nil
         }
         if !isLast {
+            guard !isAdvancing else { return }
+            isAdvancing = true
             Task {
                 try? await Task.sleep(for: .seconds(0.15))
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                     navigatingForward = true
-                    currentQuestionIndex += 1
+                    currentQuestionIndex = min(currentQuestionIndex + 1, allQuestions.count - 1)
+                } completion: {
+                    isAdvancing = false
                 }
             }
         }

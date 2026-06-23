@@ -21,7 +21,6 @@ struct ResultView: View {
     @State private var answerStore: AnswerStore
     @State private var hasLoadedScores: Bool
     @State private var showInsights = false
-    @State private var showPlan = false
     @State private var previousScores: [DomainScore]? = nil
 
     init(
@@ -101,15 +100,6 @@ struct ResultView: View {
                 questionStore: questionStore
             )
         }
-        .navigationDestination(isPresented: $showPlan) {
-            PlanView(
-                assessment: assessment,
-                project: project,
-                domainScores: domainScores,
-                answerStore: answerStore,
-                questionStore: questionStore
-            )
-        }
     }
 
     private var resultContent: some View {
@@ -126,9 +116,6 @@ struct ResultView: View {
                         APPillButton(title: "Insikter", action: {
                             showInsights = true
                         }, haptic: .light)
-                        APPillButton(title: "30-60-90 Plan", action: {
-                            showPlan = true
-                        }, style: .secondary, haptic: .light)
                     }
                     .padding(.horizontal, 20)
                 }

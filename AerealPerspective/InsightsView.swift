@@ -74,15 +74,6 @@ struct InsightsView: View {
                     ForEach(insightStore.insights) { insight in
                         insightCard(insight)
                     }
-                    generateButton("Uppdatera", style: .secondary)
-                        .padding(.top, 8)
-                    if let msg = errorMessage {
-                        Text(msg)
-                            .font(.caption)
-                            .foregroundStyle(.apRisk)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
                 }
                 .padding()
             }

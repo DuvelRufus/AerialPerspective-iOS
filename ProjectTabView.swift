@@ -12,25 +12,41 @@ struct ProjectTabView: View {
     var project: Project
     var questionStore: QuestionStore
     @State private var selectedSection = 0
+    @State private var actionStore = ActionStore()
+
+    private enum Section: Int {
+        case assessments = 0
+        case plan = 1
+        case actions = 2
+    }
 
     var body: some View {
         ZStack {
             Color.apBackground.ignoresSafeArea()
             VStack(spacing: 0) {
-                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Åtgärder"])
+                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Plan", "Åtgärder"])
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 4)
 
-                if selectedSection == 0 {
+                switch Section(rawValue: selectedSection) ?? .assessments {
+                case .assessments:
                     AssessmentListView(project: project, questionStore: questionStore)
-                } else {
-                    DocumentView(project: project, questionStore: questionStore)
+                case .plan:
+                    PlanView(project: project, questionStore: questionStore, actionStore: actionStore)
+                case .actions:
+                    DocumentView(project: project, questionStore: questionStore, actionStore: actionStore)
                 }
             }
         }
+        .task {
+            // Fetch once at the parent so the shared actions survive segment
+            // switches; subviews read this instance instead of refetching.
+            actionStore.error = nil
+            await actionStore.fetch(projectId: project.id)
+        }
         .navigationTitle(project.name)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)

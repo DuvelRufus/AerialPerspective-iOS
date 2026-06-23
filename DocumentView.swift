@@ -126,13 +126,13 @@ private struct AddActionTarget: Identifiable {
 struct DocumentView: View {
     var project: Project
     var questionStore: QuestionStore
+    var actionStore: ActionStore
 
     // Assessment context
     @State private var latestAssessment: Assessment? = nil
     @State private var domainScores: [Domain: DomainScore] = [:]
 
     // Actions
-    @State private var actionStore = ActionStore()
     @State private var addActionTarget: AddActionTarget? = nil
 
     // Notes
@@ -160,7 +160,6 @@ struct DocumentView: View {
 
     // View state
     @State private var isLoading = true
-    @State private var loadFailed = false
 
     // Search & delete
     @State private var searchText = ""
@@ -235,17 +234,18 @@ struct DocumentView: View {
             if isLoading {
                 ProgressView()
                     .tint(.apOrange)
-            } else if loadFailed {
+            } else if actionStore.error != nil {
                 APErrorState {
-                    loadFailed = false
-                    isLoading = true
-                    Task { await fetchAll() }
+                    Task {
+                        actionStore.error = nil
+                        await actionStore.fetch(projectId: project.id)
+                    }
                 }
             } else {
                 VStack(spacing: 0) {
                     searchBar
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 16) {
                             if latestAssessment == nil {
                                 noAssessmentState
                             } else {
@@ -273,7 +273,11 @@ struct DocumentView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                     }
-                    .refreshable { await fetchAll() }
+                    .refreshable {
+                        actionStore.error = nil
+                        await actionStore.fetch(projectId: project.id)
+                        await fetchAll()
+                    }
                 }
             }
         }
@@ -383,12 +387,9 @@ struct DocumentView: View {
 
                 if isWeak || !domainActions.isEmpty {
                     if !domainActions.isEmpty {
-                        VStack(spacing: 0) {
+                        VStack(spacing: 10) {
                             ForEach(domainActions) { action in
                                 actionRow(action)
-                                if action.id != domainActions.last?.id {
-                                    Divider().background(Color.apHairline)
-                                }
                             }
                         }
                     }
@@ -410,7 +411,7 @@ struct DocumentView: View {
                     }
                 }
             }
-            .padding(14)
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color.apSurface)
@@ -477,7 +478,13 @@ struct DocumentView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .padding(12)
+        .background(.ultraThinMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
         .contextMenu {
             Button(role: .destructive) {
@@ -818,16 +825,15 @@ struct DocumentView: View {
     // MARK: - Fetch
 
     private func fetchAll() async {
-        actionStore.error = nil
+        // Actions are fetched once at ProjectTabView and shared; this loads
+        // only DocumentView's own per-view data.
         await loadAssessmentContext()
-        await actionStore.fetch(projectId: project.id)
         if !noteLoaded {
             await fetchNote()
         }
         await fetchDecisions()
         await fetchLinks()
         await fetchContacts()
-        loadFailed = actionStore.error != nil
         isLoading = false
     }
 

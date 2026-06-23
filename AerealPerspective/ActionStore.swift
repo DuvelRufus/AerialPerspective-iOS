@@ -16,6 +16,7 @@ struct ProjectAction: Identifiable, Codable {
     var status: String
     var assessmentId: UUID?
     var insightId: UUID?
+    var planActionId: UUID?
     var createdFromScore: Int?
     var createdAt: Date
 
@@ -24,6 +25,7 @@ struct ProjectAction: Identifiable, Codable {
         case projectId = "project_id"
         case assessmentId = "assessment_id"
         case insightId = "insight_id"
+        case planActionId = "plan_action_id"
         case createdFromScore = "created_from_score"
         case createdAt = "created_at"
     }
@@ -37,6 +39,7 @@ private struct NewAction: Encodable {
     let title: String
     let assessment_id: UUID?
     let insight_id: UUID?
+    let plan_action_id: UUID?
     let created_from_score: Int?
 }
 
@@ -65,12 +68,20 @@ class ActionStore {
         }
     }
 
+    /// The action created from a given plan item, if any. Computed over the
+    /// already-loaded `actions` — does not fetch. Plan derives item status:
+    /// nil = not started, non-nil & !isDone = in progress, isDone = done.
+    func action(forPlanItem id: UUID) -> ProjectAction? {
+        actions.first { $0.planActionId == id }
+    }
+
     func add(
         projectId: UUID,
         domain: String,
         title: String,
         assessmentId: UUID?,
         insightId: UUID? = nil,
+        planActionId: UUID? = nil,
         createdFromScore: Int?
     ) async throws {
         let inserted: ProjectAction = try await supabase
@@ -81,6 +92,7 @@ class ActionStore {
                 title: title,
                 assessment_id: assessmentId,
                 insight_id: insightId,
+                plan_action_id: planActionId,
                 created_from_score: createdFromScore
             ))
             .select()
