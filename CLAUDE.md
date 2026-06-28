@@ -1,3 +1,36 @@
+# Sessionskontext
+
+Vid start av varje ny session: orientera dig i vad som hänt sedan sist genom att läsa den senaste git-historiken innan du börjar arbeta.
+
+```bash
+git log --oneline -15
+git status
+```
+
+Detta ger den faktiska, alltid aktuella bilden av:
+- Vilka funktioner och fixar som nyligen landat (commit-meddelandena beskriver vad + varför)
+- Om det finns ocommittad kod i arbetsträdet som behöver hanteras innan nytt arbete påbörjas
+
+Git-historiken är den enda källan till sanning för vad som ändrats. Det finns medvetet ingen separat NOTES.md eller changelog att hålla synkad, eftersom en sådan blir inaktuell. Commit-meddelandena ÄR loggen.
+
+Om arbetsträdet har ocommittad kod vid sessionsstart: påtala det och fråga om den ska committas innan nytt arbete börjar (se Commit-disciplin nedan).
+
+## Commit-disciplin
+
+- Committa per verifierad feature, inte per session. En commit = en logisk, byggd och verifierad ändring.
+- Pusha aldrig utan explicit godkännande från Danny.
+- Verifiera alltid med `xcodebuild` -> BUILD SUCCEEDED innan commit.
+- Commit-meddelanden beskriver vad + varför, inte bara vad.
+- Stapla inte orelaterade ändringar i samma commit. Om arbetsträdet har ocommittade ändringar från ett tidigare pass, committa dem separat innan nytt arbete läggs ovanpå.
+
+## Aktuella kända, ej åtgärdade punkter
+
+Håll denna korta lista uppdaterad när vi medvetet skjuter upp något. Ta bort poster när de åtgärdas.
+
+- **DocumentView score-spinner vid segment-byte.** DocumentView räknar om assessment-scores vid varje byte och gatar body på isLoading, så domänkorten blinkar bakom en spinner vid segment-byte. Actions delas redan via lyft ActionStore, men score-kontexten gör det inte. Fix om det skaver: lyft assessment-kontext till ProjectTabView, eller rendera åtgärdskort innan scores resolvar.
+
+---
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
