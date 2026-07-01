@@ -8,11 +8,18 @@
 import Foundation
 import Supabase
 
+private struct AnswerUpsert: Encodable {
+    let assessment_id: UUID
+    let question_id: UUID
+    let answer_option_id: UUID
+}
+
 @MainActor
 @Observable
 class AnswerStore {
     var answers: [UUID: UUID] = [:]  // question_id -> answer_option_id
     var isLoading = false
+    var error: Error? = nil
 
     func fetch(assessmentId: UUID) async {
         isLoading = true
@@ -36,33 +43,28 @@ class AnswerStore {
     }
 
     func save(assessmentId: UUID, questionId: UUID, answerOptionId: UUID) async {
+        let previous = answers[questionId]
         answers[questionId] = answerOptionId
+        error = nil
         do {
-            let existing: [Answer] = try await supabase
+            try await supabase
                 .from("answers")
-                .select()
-                .eq("assessment_id", value: assessmentId)
-                .eq("question_id", value: questionId)
+                .upsert(
+                    AnswerUpsert(
+                        assessment_id: assessmentId,
+                        question_id: questionId,
+                        answer_option_id: answerOptionId
+                    ),
+                    onConflict: "assessment_id,question_id"
+                )
                 .execute()
-                .value
-
-            if let existing = existing.first {
-                try await supabase
-                    .from("answers")
-                    .update(["answer_option_id": AnyJSON.string(answerOptionId.uuidString)])
-                    .eq("id", value: existing.id)
-                    .execute()
-            } else {
-                try await supabase
-                    .from("answers")
-                    .insert([
-                        "assessment_id": AnyJSON.string(assessmentId.uuidString),
-                        "question_id": AnyJSON.string(questionId.uuidString),
-                        "answer_option_id": AnyJSON.string(answerOptionId.uuidString)
-                    ])
-                    .execute()
-            }
         } catch {
+            // Revert only if a newer selection hasn't replaced this one while
+            // the request was in flight.
+            if answers[questionId] == answerOptionId {
+                answers[questionId] = previous
+            }
+            self.error = error
             print("AnswerStore save error: \(error)")
         }
     }

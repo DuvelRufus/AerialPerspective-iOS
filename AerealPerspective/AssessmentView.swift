@@ -65,6 +65,7 @@ struct AssessmentView: View {
     @State private var navigatingForward = true
     @State private var glowOptionId: UUID? = nil
     @State private var showResult = false
+    @State private var saveFailed = false
 
     var allQuestions: [Question] {
         questionStore.groupedByDomain.flatMap { $0.questions }
@@ -193,6 +194,9 @@ struct AssessmentView: View {
                 currentQuestionIndex = allQuestions.count - 1
             }
         }
+        .onChange(of: currentQuestionIndex) { _, _ in
+            saveFailed = false
+        }
     }
 
     // MARK: - Progress
@@ -261,6 +265,21 @@ struct AssessmentView: View {
                     }
                 }
 
+                if saveFailed {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                        Text("Svaret kunde inte sparas. Försök igen.")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.apRisk)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.apRisk.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .transition(.opacity)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
@@ -319,11 +338,27 @@ struct AssessmentView: View {
     // MARK: - Actions
 
     private func selectOption(option: AnswerOption, question: Question) async {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            saveFailed = false
+        }
         await answerStore.save(
             assessmentId: assessment.id,
             questionId: question.id,
             answerOptionId: option.id
         )
+        // save() är icke-kastande: lyckad = inget store-fel, eller att det
+        // optimistiska valet står kvar (per fråga — robust mot ett kvarhängande
+        // fel från en samtidig save på en annan fråga).
+        let saved = answerStore.error == nil || answerStore.answers[question.id] == option.id
+        guard saved else {
+            if currentQuestion?.id == question.id {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    saveFailed = true
+                }
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+            return
+        }
         glowOptionId = option.id
         let isLast = currentQuestionIndex >= allQuestions.count - 1
         Task {
