@@ -58,36 +58,6 @@ struct Contact: Identifiable, Codable {
 
 // MARK: - Private DB models
 
-private struct ProjectDocument: Identifiable, Codable {
-    let id: UUID
-    var projectId: UUID
-    var content: String
-    var type: String
-    var updatedAt: Date
-    enum CodingKeys: String, CodingKey {
-        case id, content, type
-        case projectId = "project_id"
-        case updatedAt = "updated_at"
-    }
-}
-
-private struct NewNote: Encodable {
-    let project_id: UUID
-    let content: String
-    let type: String
-}
-
-private struct UpdateNote: Encodable {
-    let content: String
-}
-
-private enum NoteSaveStatus: Equatable {
-    case idle
-    case saving
-    case saved(Date)
-    case failed
-}
-
 private struct NewLink: Encodable {
     let project_id: UUID
     let title: String
@@ -136,6 +106,7 @@ struct DocumentView: View {
     var project: Project
     var questionStore: QuestionStore
     var actionStore: ActionStore
+    @Bindable var noteStore: NoteStore
 
     // Assessment context
     @State private var latestAssessment: Assessment? = nil
@@ -143,14 +114,6 @@ struct DocumentView: View {
 
     // Actions
     @State private var addActionTarget: AddActionTarget? = nil
-
-    // Notes
-    @State private var noteContent = ""
-    @State private var noteDocumentId: UUID? = nil
-    @State private var noteSaveTask: Task<Void, Never>? = nil
-    @State private var noteSaveStatus: NoteSaveStatus = .idle
-    @State private var noteLoaded = false
-    @State private var lastPersistedContent = ""
 
     // Data
     @State private var decisions: [Decision] = []
@@ -294,16 +257,9 @@ struct DocumentView: View {
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .task { await fetchAll() }
-        .onChange(of: noteContent) { _, _ in
-            guard noteLoaded else { return }
-            scheduleNoteSave()
-        }
-        .onDisappear {
-            noteSaveTask?.cancel()
-            guard noteLoaded, noteContent != lastPersistedContent else { return }
-            // Ostrukturerad Task: inte livscykelbunden som .task, så skrivningen
-            // överlever att vyn rivs ner vid segment-byte.
-            Task { await saveNote() }
+        .onChange(of: noteStore.content) { _, _ in
+            guard noteStore.isLoaded else { return }
+            noteStore.scheduleSave()
         }
         .sheet(item: $addActionTarget) { target in
             AddActionSheet(domainName: target.domain.rawValue) { title in
@@ -613,7 +569,7 @@ struct DocumentView: View {
                         .padding(.vertical, 10)
 
                     ZStack(alignment: .topLeading) {
-                        if noteContent.isEmpty {
+                        if noteStore.content.isEmpty {
                             Text("Skriv projektdokumentation, beslut, arkitektur...")
                                 .font(.body)
                                 .foregroundStyle(.apTextTertiary)
@@ -621,7 +577,7 @@ struct DocumentView: View {
                                 .padding(.leading, 4)
                                 .allowsHitTesting(false)
                         }
-                        TextEditor(text: $noteContent)
+                        TextEditor(text: $noteStore.content)
                             .font(.body)
                             .foregroundStyle(.apTextPrimary)
                             .scrollContentBackground(.hidden)
@@ -631,7 +587,7 @@ struct DocumentView: View {
 
                     HStack {
                         Spacer()
-                        switch noteSaveStatus {
+                        switch noteStore.status {
                         case .idle:
                             EmptyView()
                         case .saving:
@@ -857,8 +813,8 @@ struct DocumentView: View {
         // Actions are fetched once at ProjectTabView and shared; this loads
         // only DocumentView's own per-view data.
         await loadAssessmentContext()
-        if !noteLoaded {
-            await fetchNote()
+        if !noteStore.isLoaded {
+            await noteStore.fetch(projectId: project.id)
         }
         await fetchDecisions()
         await fetchLinks()
@@ -902,28 +858,6 @@ struct DocumentView: View {
         domainScores = [:]
     }
 
-    private func fetchNote() async {
-        do {
-            let docs: [ProjectDocument] = try await supabase
-                .from("documents")
-                .select()
-                .eq("project_id", value: project.id)
-                .eq("type", value: "note")
-                .order("updated_at", ascending: false)
-                .limit(1)
-                .execute()
-                .value
-            if let doc = docs.first {
-                noteContent = doc.content
-                noteDocumentId = doc.id
-                lastPersistedContent = doc.content
-            }
-        } catch {
-            print("DocumentView: fetchNote error: \(error)")
-        }
-        noteLoaded = true
-    }
-
     private func fetchDecisions() async {
         do {
             decisions = try await supabase
@@ -963,86 +897,6 @@ struct DocumentView: View {
                 .value
         } catch {
             print("DocumentView: fetchContacts error: \(error)")
-        }
-    }
-
-    // MARK: - Note save
-
-    private func scheduleNoteSave() {
-        noteSaveTask?.cancel()
-        noteSaveTask = Task {
-            try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled else { return }
-            await saveNote()
-        }
-    }
-
-    private func saveNote() async {
-        // Snapshot: det är denna text som skickas, så det är den som ska
-        // bokföras som persisterad — inte tangenttryck som landar under awaiten.
-        let content = noteContent
-        // No-op: inget har ändrats sedan senaste lyckade skrivning.
-        if content == lastPersistedContent { return }
-        // Skydd: ett tömt fält får aldrig tyst skriva över en sparad anteckning.
-        // Avsiktlig rensning går via clearNote(), som är enda tillåtna vägen
-        // att persistera tom text.
-        if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !lastPersistedContent.isEmpty {
-            return
-        }
-        noteSaveStatus = .saving
-        do {
-            if let existingId = noteDocumentId {
-                try await supabase
-                    .from("documents")
-                    .update(UpdateNote(content: content))
-                    .eq("id", value: existingId)
-                    .execute()
-            } else {
-                let inserted: ProjectDocument = try await supabase
-                    .from("documents")
-                    .insert(NewNote(project_id: project.id, content: content, type: "note"))
-                    .select()
-                    .single()
-                    .execute()
-                    .value
-                noteDocumentId = inserted.id
-            }
-            lastPersistedContent = content
-            noteSaveStatus = .saved(Date())
-        } catch {
-            // noteContent lämnas orörd — det skrivna finns kvar i minnet och
-            // nästa lyckade debounce-sparning rensar .failed.
-            noteSaveStatus = .failed
-            print("DocumentView: saveNote error: \(error)")
-        }
-    }
-
-    /// Avsiktlig rensning — enda vägen förbi tomt-skyddet i saveNote().
-    /// Uppdaterar raden till "" i stället för att radera den, så framtida
-    /// redigeringar stannar på update-vägen (ingen insert-race) och UI:t
-    /// ser identiskt ut (placeholdern styrs av noteContent.isEmpty).
-    private func clearNote() async {
-        noteSaveTask?.cancel()
-        guard let existingId = noteDocumentId else {
-            noteContent = ""
-            lastPersistedContent = ""
-            return
-        }
-        noteSaveStatus = .saving
-        do {
-            try await supabase
-                .from("documents")
-                .update(UpdateNote(content: ""))
-                .eq("id", value: existingId)
-                .execute()
-            lastPersistedContent = ""
-            noteContent = ""
-            noteSaveStatus = .saved(Date())
-        } catch {
-            // Fältet behåller gammal text — servern rensades aldrig.
-            noteSaveStatus = .failed
-            print("DocumentView: clearNote error: \(error)")
         }
     }
 
@@ -1109,7 +963,7 @@ struct DocumentView: View {
             case .action(let a):
                 try await actionStore.delete(a)
             case .note:
-                await clearNote()
+                await noteStore.clear()
             }
         } catch {
             print("DocumentView: delete error: \(error)")
