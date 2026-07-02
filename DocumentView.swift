@@ -148,6 +148,7 @@ struct DocumentView: View {
     @State private var noteSaveTask: Task<Void, Never>? = nil
     @State private var noteSaveStatus: NoteSaveStatus = .idle
     @State private var noteLoaded = false
+    @State private var lastPersistedContent = ""
 
     // Data
     @State private var decisions: [Decision] = []
@@ -295,7 +296,13 @@ struct DocumentView: View {
             guard noteLoaded else { return }
             scheduleNoteSave()
         }
-        .onDisappear { noteSaveTask?.cancel() }
+        .onDisappear {
+            noteSaveTask?.cancel()
+            guard noteLoaded, noteContent != lastPersistedContent else { return }
+            // Ostrukturerad Task: inte livscykelbunden som .task, så skrivningen
+            // överlever att vyn rivs ner vid segment-byte.
+            Task { await saveNote() }
+        }
         .sheet(item: $addActionTarget) { target in
             AddActionSheet(domainName: target.domain.rawValue) { title in
                 Task { await addAction(domain: target.domain, score: target.score, title: title) }
@@ -900,6 +907,7 @@ struct DocumentView: View {
             if let doc = docs.first {
                 noteContent = doc.content
                 noteDocumentId = doc.id
+                lastPersistedContent = doc.content
             }
         } catch {
             print("DocumentView: fetchNote error: \(error)")
@@ -961,24 +969,28 @@ struct DocumentView: View {
     }
 
     private func saveNote() async {
+        // Snapshot: det är denna text som skickas, så det är den som ska
+        // bokföras som persisterad — inte tangenttryck som landar under awaiten.
+        let content = noteContent
         noteSaveStatus = .saving
         do {
             if let existingId = noteDocumentId {
                 try await supabase
                     .from("documents")
-                    .update(UpdateNote(content: noteContent))
+                    .update(UpdateNote(content: content))
                     .eq("id", value: existingId)
                     .execute()
             } else {
                 let inserted: ProjectDocument = try await supabase
                     .from("documents")
-                    .insert(NewNote(project_id: project.id, content: noteContent, type: "note"))
+                    .insert(NewNote(project_id: project.id, content: content, type: "note"))
                     .select()
                     .single()
                     .execute()
                     .value
                 noteDocumentId = inserted.id
             }
+            lastPersistedContent = content
             noteSaveStatus = .saved(Date())
         } catch {
             // noteContent lämnas orörd — det skrivna finns kvar i minnet och
