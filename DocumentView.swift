@@ -58,14 +58,14 @@ struct Contact: Identifiable, Codable {
 
 // MARK: - Private DB models
 
-private struct NewLink: Encodable {
+struct NewLink: Encodable {
     let project_id: UUID
     let title: String
     let url: String
     let category: String
 }
 
-private struct NewContact: Encodable {
+struct NewContact: Encodable {
     let project_id: UUID
     let name: String
     let role: String?
@@ -1022,7 +1022,7 @@ private struct AddActionSheet: View {
 
 // MARK: - Add Link Sheet
 
-private enum LinkCategory: String, CaseIterable {
+enum LinkCategory: String, CaseIterable {
     case jira = "Jira"
     case figma = "Figma"
     case github = "GitHub"
@@ -1030,7 +1030,7 @@ private enum LinkCategory: String, CaseIterable {
     case annat = "Annat"
 }
 
-private struct AddLinkSheet: View {
+struct AddLinkSheet: View {
     let onSave: (String, String, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -1103,7 +1103,7 @@ private struct AddLinkSheet: View {
 
 // MARK: - Add Contact Sheet
 
-private struct AddContactSheet: View {
+struct AddContactSheet: View {
     let onSave: (String, String?, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
