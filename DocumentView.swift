@@ -109,6 +109,7 @@ private enum DeleteIntent {
     case link(ProjectLink)
     case contact(Contact)
     case action(ProjectAction)
+    case note
 
     var title: String {
         switch self {
@@ -116,6 +117,7 @@ private enum DeleteIntent {
         case .link(let l):     return "Radera \"\(l.title)\"?"
         case .contact(let c):  return "Radera \"\(c.name)\"?"
         case .action(let a):   return "Radera \"\(a.title)\"?"
+        case .note:            return "Rensa anteckningen?"
         }
     }
 }
@@ -597,6 +599,13 @@ struct DocumentView: View {
                     isExpanded: notesExpanded,
                     onAdd: nil
                 ) { notesExpanded.toggle() }
+                .contextMenu {
+                    Button(role: .destructive) {
+                        pendingDelete = .note
+                    } label: {
+                        Label("Rensa anteckning", systemImage: "trash")
+                    }
+                }
 
                 if notesExpanded {
                     Divider()
@@ -972,6 +981,15 @@ struct DocumentView: View {
         // Snapshot: det är denna text som skickas, så det är den som ska
         // bokföras som persisterad — inte tangenttryck som landar under awaiten.
         let content = noteContent
+        // No-op: inget har ändrats sedan senaste lyckade skrivning.
+        if content == lastPersistedContent { return }
+        // Skydd: ett tömt fält får aldrig tyst skriva över en sparad anteckning.
+        // Avsiktlig rensning går via clearNote(), som är enda tillåtna vägen
+        // att persistera tom text.
+        if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !lastPersistedContent.isEmpty {
+            return
+        }
         noteSaveStatus = .saving
         do {
             if let existingId = noteDocumentId {
@@ -997,6 +1015,34 @@ struct DocumentView: View {
             // nästa lyckade debounce-sparning rensar .failed.
             noteSaveStatus = .failed
             print("DocumentView: saveNote error: \(error)")
+        }
+    }
+
+    /// Avsiktlig rensning — enda vägen förbi tomt-skyddet i saveNote().
+    /// Uppdaterar raden till "" i stället för att radera den, så framtida
+    /// redigeringar stannar på update-vägen (ingen insert-race) och UI:t
+    /// ser identiskt ut (placeholdern styrs av noteContent.isEmpty).
+    private func clearNote() async {
+        noteSaveTask?.cancel()
+        guard let existingId = noteDocumentId else {
+            noteContent = ""
+            lastPersistedContent = ""
+            return
+        }
+        noteSaveStatus = .saving
+        do {
+            try await supabase
+                .from("documents")
+                .update(UpdateNote(content: ""))
+                .eq("id", value: existingId)
+                .execute()
+            lastPersistedContent = ""
+            noteContent = ""
+            noteSaveStatus = .saved(Date())
+        } catch {
+            // Fältet behåller gammal text — servern rensades aldrig.
+            noteSaveStatus = .failed
+            print("DocumentView: clearNote error: \(error)")
         }
     }
 
@@ -1062,6 +1108,8 @@ struct DocumentView: View {
                 contacts.removeAll { $0.id == c.id }
             case .action(let a):
                 try await actionStore.delete(a)
+            case .note:
+                await clearNote()
             }
         } catch {
             print("DocumentView: delete error: \(error)")
