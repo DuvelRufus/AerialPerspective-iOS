@@ -19,13 +19,14 @@ struct ProjectTabView: View {
         case assessments = 0
         case plan = 1
         case actions = 2
+        case ovrigt = 3
     }
 
     var body: some View {
         ZStack {
             Color.apBackground.ignoresSafeArea()
             VStack(spacing: 0) {
-                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Plan", "Åtgärder"])
+                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Plan", "Åtgärder", "Övrigt"])
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 4)
@@ -36,7 +37,9 @@ struct ProjectTabView: View {
                 case .plan:
                     PlanView(project: project, questionStore: questionStore, actionStore: actionStore)
                 case .actions:
-                    DocumentView(project: project, questionStore: questionStore, actionStore: actionStore, noteStore: noteStore)
+                    DocumentView(project: project, questionStore: questionStore, actionStore: actionStore)
+                case .ovrigt:
+                    OvrigtView(project: project, noteStore: noteStore)
                 }
             }
         }
@@ -60,6 +63,17 @@ private struct APSegmentedControl: View {
     @Namespace private var ns
 
     var body: some View {
+        // Innehållsbredd i stället för lika flex; skrollar horisontellt
+        // om segmenten någonsin inte får plats.
+        ViewThatFits(in: .horizontal) {
+            pills
+            ScrollView(.horizontal, showsIndicators: false) {
+                pills
+            }
+        }
+    }
+
+    private var pills: some View {
         HStack(spacing: 4) {
             ForEach(options.indices, id: \.self) { i in
                 Button {
@@ -71,7 +85,7 @@ private struct APSegmentedControl: View {
                     Text(options[i])
                         .font(.subheadline.weight(selection == i ? .semibold : .regular))
                         .foregroundStyle(selection == i ? Color.apTextPrimary : Color.apTextSecondary)
-                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                         .background {
                             if selection == i {

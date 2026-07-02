@@ -10,8 +10,55 @@ import UIKit
 import SwiftUI
 import Supabase
 
-// Trimmad kopia av DocumentViews DeleteIntent (endast Övrigt-fallen).
-// Avsiktlig, tillfällig duplicering tills DocumentView rensas i nästa steg.
+// MARK: - Models
+
+struct ProjectLink: Identifiable, Codable {
+    let id: UUID
+    var projectId: UUID
+    var title: String
+    var url: String
+    var category: String
+    var createdAt: Date
+    enum CodingKeys: String, CodingKey {
+        case id, title, url, category
+        case projectId = "project_id"
+        case createdAt = "created_at"
+    }
+}
+
+struct Contact: Identifiable, Codable {
+    let id: UUID
+    var projectId: UUID
+    var name: String
+    var role: String?
+    var contactInfo: String?
+    var createdAt: Date
+    enum CodingKeys: String, CodingKey {
+        case id, name, role
+        case projectId = "project_id"
+        case contactInfo = "contact_info"
+        case createdAt = "created_at"
+    }
+}
+
+// MARK: - Insert payloads
+
+private struct NewLink: Encodable {
+    let project_id: UUID
+    let title: String
+    let url: String
+    let category: String
+}
+
+private struct NewContact: Encodable {
+    let project_id: UUID
+    let name: String
+    let role: String?
+    let contact_info: String?
+}
+
+// MARK: - Delete intent
+
 private enum DeleteIntent {
     case link(ProjectLink)
     case contact(Contact)
@@ -43,28 +90,7 @@ struct OvrigtView: View {
     @State private var linksExpanded = false
     @State private var contactsExpanded = false
 
-    // Ingen sökrad här ännu — filtren behålls oförändrade från DocumentView
-    // med en alltid-tom söksträng så en framtida sökrad kan kopplas in direkt.
-    @State private var searchText = ""
     @State private var pendingDelete: DeleteIntent? = nil
-
-    // MARK: Filtered
-
-    private var filteredLinks: [ProjectLink] {
-        guard !searchText.isEmpty else { return links }
-        return links.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText) ||
-            $0.url.localizedCaseInsensitiveContains(searchText)
-        }
-    }
-
-    private var filteredContacts: [Contact] {
-        guard !searchText.isEmpty else { return contacts }
-        return contacts.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            ($0.role?.localizedCaseInsensitiveContains(searchText) ?? false)
-        }
-    }
 
     // MARK: Body
 
@@ -255,22 +281,22 @@ struct OvrigtView: View {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
                     title: "LÄNKAR",
-                    count: filteredLinks.isEmpty ? nil : filteredLinks.count,
+                    count: links.isEmpty ? nil : links.count,
                     isExpanded: linksExpanded,
                     onAdd: { showAddLink = true }
                 ) { linksExpanded.toggle() }
 
                 if linksExpanded {
-                    if filteredLinks.isEmpty {
-                        Text(searchText.isEmpty ? "Inga länkar ännu" : "Inga träffar")
+                    if links.isEmpty {
+                        Text("Inga länkar ännu")
                             .font(.caption)
                             .foregroundStyle(.apTextTertiary)
                             .padding(.top, 12)
                     } else {
                         VStack(spacing: 0) {
-                            ForEach(filteredLinks) { link in
+                            ForEach(links) { link in
                                 linkRow(link)
-                                if link.id != filteredLinks.last?.id {
+                                if link.id != links.last?.id {
                                     Divider().background(Color.apHairline)
                                 }
                             }
@@ -325,22 +351,22 @@ struct OvrigtView: View {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
                     title: "KONTAKTER",
-                    count: filteredContacts.isEmpty ? nil : filteredContacts.count,
+                    count: contacts.isEmpty ? nil : contacts.count,
                     isExpanded: contactsExpanded,
                     onAdd: { showAddContact = true }
                 ) { contactsExpanded.toggle() }
 
                 if contactsExpanded {
-                    if filteredContacts.isEmpty {
-                        Text(searchText.isEmpty ? "Inga kontakter ännu" : "Inga träffar")
+                    if contacts.isEmpty {
+                        Text("Inga kontakter ännu")
                             .font(.caption)
                             .foregroundStyle(.apTextTertiary)
                             .padding(.top, 12)
                     } else {
                         VStack(spacing: 0) {
-                            ForEach(filteredContacts) { contact in
+                            ForEach(contacts) { contact in
                                 contactRow(contact)
-                                if contact.id != filteredContacts.last?.id {
+                                if contact.id != contacts.last?.id {
                                     Divider().background(Color.apHairline)
                                 }
                             }
@@ -460,6 +486,156 @@ struct OvrigtView: View {
             }
         } catch {
             print("OvrigtView: delete error: \(error)")
+        }
+    }
+}
+
+// MARK: - Add Link Sheet
+
+private enum LinkCategory: String, CaseIterable {
+    case jira = "Jira"
+    case figma = "Figma"
+    case github = "GitHub"
+    case confluence = "Confluence"
+    case annat = "Annat"
+}
+
+private struct AddLinkSheet: View {
+    let onSave: (String, String, String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var url = ""
+    @State private var category: LinkCategory = .annat
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.apBackground.ignoresSafeArea()
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "TITEL")
+                        TextField("", text: $title)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "URL")
+                        TextField("https://", text: $url)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "KATEGORI")
+                        Picker("Kategori", selection: $category) {
+                            ForEach(LinkCategory.allCases, id: \.self) {
+                                Text($0.rawValue).tag($0)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty || url.trimmingCharacters(in: .whitespaces).isEmpty
+                    APPillButton(title: "Spara", action: {
+                        let t = title.trimmingCharacters(in: .whitespaces)
+                        let u = url.trimmingCharacters(in: .whitespaces)
+                        guard !t.isEmpty, !u.isEmpty else { return }
+                        onSave(t, u, category.rawValue)
+                        dismiss()
+                    })
+                    .opacity(isDisabled ? 0.5 : 1)
+                    .disabled(isDisabled)
+
+                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationTitle("Ny länk")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+            .toolbarBackground(Color.apBackground, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+    }
+}
+
+// MARK: - Add Contact Sheet
+
+private struct AddContactSheet: View {
+    let onSave: (String, String?, String?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var role = ""
+    @State private var contactInfo = ""
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.apBackground.ignoresSafeArea()
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "NAMN")
+                        TextField("", text: $name)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "ROLL (VALFRITT)")
+                        TextField("", text: $role)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "KONTAKTINFO (VALFRITT)")
+                        TextField("E-post, telefon...", text: $contactInfo)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    let isDisabled = name.trimmingCharacters(in: .whitespaces).isEmpty
+                    APPillButton(title: "Spara", action: {
+                        let trimmed = name.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty else { return }
+                        onSave(trimmed, role.isEmpty ? nil : role, contactInfo.isEmpty ? nil : contactInfo)
+                        dismiss()
+                    })
+                    .opacity(isDisabled ? 0.5 : 1)
+                    .disabled(isDisabled)
+
+                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationTitle("Ny kontakt")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+            .toolbarBackground(Color.apBackground, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
         }
     }
 }
