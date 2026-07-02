@@ -81,6 +81,13 @@ private struct UpdateNote: Encodable {
     let content: String
 }
 
+private enum NoteSaveStatus: Equatable {
+    case idle
+    case saving
+    case saved(Date)
+    case failed
+}
+
 private struct NewLink: Encodable {
     let project_id: UUID
     let title: String
@@ -139,8 +146,7 @@ struct DocumentView: View {
     @State private var noteContent = ""
     @State private var noteDocumentId: UUID? = nil
     @State private var noteSaveTask: Task<Void, Never>? = nil
-    @State private var isSavingNote = false
-    @State private var noteLastSaved: Date? = nil
+    @State private var noteSaveStatus: NoteSaveStatus = .idle
     @State private var noteLoaded = false
 
     // Data
@@ -609,14 +615,21 @@ struct DocumentView: View {
 
                     HStack {
                         Spacer()
-                        if isSavingNote {
+                        switch noteSaveStatus {
+                        case .idle:
+                            EmptyView()
+                        case .saving:
                             Text("Sparar...")
                                 .font(.caption)
                                 .foregroundStyle(.apTextTertiary)
-                        } else if let saved = noteLastSaved {
-                            Text("Sparat \(saved.formatted(date: .omitted, time: .shortened))")
+                        case .saved(let date):
+                            Text("Sparat \(date.formatted(date: .omitted, time: .shortened))")
                                 .font(.caption)
                                 .foregroundStyle(.apTextTertiary)
+                        case .failed:
+                            Text("Kunde inte spara – ändringar osparade")
+                                .font(.caption)
+                                .foregroundStyle(.apRisk)
                         }
                     }
                     .padding(.top, 4)
@@ -880,6 +893,7 @@ struct DocumentView: View {
                 .select()
                 .eq("project_id", value: project.id)
                 .eq("type", value: "note")
+                .order("updated_at", ascending: false)
                 .limit(1)
                 .execute()
                 .value
@@ -947,8 +961,7 @@ struct DocumentView: View {
     }
 
     private func saveNote() async {
-        isSavingNote = true
-        defer { isSavingNote = false }
+        noteSaveStatus = .saving
         do {
             if let existingId = noteDocumentId {
                 try await supabase
@@ -966,8 +979,11 @@ struct DocumentView: View {
                     .value
                 noteDocumentId = inserted.id
             }
-            noteLastSaved = Date()
+            noteSaveStatus = .saved(Date())
         } catch {
+            // noteContent lämnas orörd — det skrivna finns kvar i minnet och
+            // nästa lyckade debounce-sparning rensar .failed.
+            noteSaveStatus = .failed
             print("DocumentView: saveNote error: \(error)")
         }
     }
