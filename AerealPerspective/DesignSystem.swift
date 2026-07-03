@@ -240,6 +240,81 @@ struct APSectionHeader: View {
     }
 }
 
+// MARK: - Shimmer
+
+// Sweeps a soft highlight band across the modified view's glyphs (masked to
+// the content, so it never spills outside text).
+private struct APShimmerModifier: ViewModifier {
+    @State private var phase: CGFloat = -0.6
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                GeometryReader { geo in
+                    LinearGradient(
+                        colors: [.clear, .white.opacity(0.65), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: geo.size.width * 0.6)
+                    .offset(x: phase * geo.size.width)
+                }
+                .mask(content)
+                .allowsHitTesting(false)
+            }
+            .onAppear {
+                withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
+                    phase = 1.2
+                }
+            }
+    }
+}
+
+extension View {
+    func apShimmer() -> some View {
+        modifier(APShimmerModifier())
+    }
+}
+
+// MARK: - APGeneratingState
+
+/// Loading state for AI generation: a pulsing sparkles icon over status
+/// phrases that cycle with a shimmer, so the wait reads as deliberate work.
+struct APGeneratingState: View {
+    var phrases: [String]
+    var interval: Double = 1.8
+
+    @State private var index = 0
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 40))
+                .foregroundStyle(.apOrange)
+                .symbolEffect(.pulse)
+            ZStack {
+                Text(phrases[index % max(phrases.count, 1)])
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.apTextSecondary)
+                    .apShimmer()
+                    .id(index)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .move(edge: .top).combined(with: .opacity)))
+            }
+            .frame(height: 22)
+            .clipped()
+        }
+        .task {
+            guard phrases.count > 1 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(interval))
+                withAnimation(.easeInOut(duration: 0.4)) { index += 1 }
+            }
+        }
+    }
+}
+
 // MARK: - APErrorState
 
 struct APErrorState: View {

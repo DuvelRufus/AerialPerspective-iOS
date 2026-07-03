@@ -65,10 +65,20 @@ struct PlanView: View {
         .task { await load() }
     }
 
+    /// Cycled by APGeneratingState while generate-plan-funktionen kör.
+    private static let generationPhrases: [String] = [
+        "Analyserar dina svar...",
+        "Prioriterar åtgärder...",
+        "Bygger dag 1–30...",
+        "Bygger dag 31–60...",
+        "Bygger dag 61–90...",
+        "Finslipar planen..."
+    ]
+
     @ViewBuilder
     private var content: some View {
         if isGenerating {
-            loadingState("Bygger plan...")
+            APGeneratingState(phrases: Self.generationPhrases)
         } else if isLoading {
             loadingState("Laddar plan...")
         } else if let plan {

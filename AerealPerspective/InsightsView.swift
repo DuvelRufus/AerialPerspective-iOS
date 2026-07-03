@@ -26,6 +26,8 @@ struct InsightsView: View {
     // isLoading == false, error == nil, insights == []. Generera-knappen får
     // bara visas efter en genomförd hämtning.
     @State private var hasFetched = false
+    // Driver för den staggrade intåget av insiktskorten.
+    @State private var cardsRevealed = false
 
     var body: some View {
         ZStack {
@@ -49,7 +51,9 @@ struct InsightsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if insightStore.isLoading || isGenerating {
+        if isGenerating {
+            APGeneratingState(phrases: Self.generationPhrases)
+        } else if insightStore.isLoading {
             loadingState
         } else if insightStore.error != nil {
             // Misslyckad hämtning: tom array är tvetydig här, så generera-
@@ -79,14 +83,26 @@ struct InsightsView: View {
         } else {
             ScrollView {
                 VStack(spacing: 12) {
-                    ForEach(insightStore.insights) { insight in
+                    ForEach(Array(insightStore.insights.enumerated()), id: \.element.id) { index, insight in
                         insightCard(insight)
+                            .opacity(cardsRevealed ? 1 : 0)
+                            .offset(y: cardsRevealed ? 0 : 16)
+                            .animation(
+                                .spring(response: 0.45, dampingFraction: 0.8)
+                                    .delay(min(Double(index) * 0.07, 0.6)),
+                                value: cardsRevealed
+                            )
                     }
                 }
                 .padding()
             }
+            .onAppear { cardsRevealed = true }
         }
     }
+
+    /// Cycled by APGeneratingState while the edge function runs.
+    private static let generationPhrases: [String] =
+        Domain.allCases.map { "Analyserar \($0.rawValue)..." } + ["Sammanställer insikter..."]
 
     private var loadingState: some View {
         VStack(spacing: 16) {
