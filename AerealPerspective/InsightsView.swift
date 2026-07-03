@@ -1,3 +1,4 @@
+
 //
 //  InsightsView.swift
 //  AerealPerspective
@@ -21,6 +22,10 @@ struct InsightsView: View {
     @State private var isGenerating = false
     @State private var errorMessage: String? = nil
     @State private var insightForAction: Insight? = nil
+    // Storen kan inte skilja "aldrig hämtat" från "hämtat, tomt" — båda är
+    // isLoading == false, error == nil, insights == []. Generera-knappen får
+    // bara visas efter en genomförd hämtning.
+    @State private var hasFetched = false
 
     var body: some View {
         ZStack {
@@ -32,6 +37,7 @@ struct InsightsView: View {
         .preferredColorScheme(.dark)
         .task {
             await insightStore.fetch(assessmentId: assessment.id)
+            hasFetched = true
             await actionStore.fetch(projectId: project.id)
         }
         .sheet(item: $insightForAction) { insight in
@@ -44,13 +50,15 @@ struct InsightsView: View {
     @ViewBuilder
     private var content: some View {
         if insightStore.isLoading || isGenerating {
-            VStack(spacing: 16) {
-                ProgressView()
-                    .tint(.apOrange)
-                Text("Analyserar...")
-                    .foregroundStyle(.apTextSecondary)
-                    .font(.subheadline)
+            loadingState
+        } else if insightStore.error != nil {
+            // Misslyckad hämtning: tom array är tvetydig här, så generera-
+            // knappen får aldrig visas — en tap skulle skapa dubblettrader.
+            APErrorState {
+                Task { await insightStore.fetch(assessmentId: assessment.id) }
             }
+        } else if !hasFetched && insightStore.insights.isEmpty {
+            loadingState
         } else if insightStore.insights.isEmpty {
             VStack(spacing: 20) {
                 Image(systemName: "lightbulb")
@@ -77,6 +85,16 @@ struct InsightsView: View {
                 }
                 .padding()
             }
+        }
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .tint(.apOrange)
+            Text("Analyserar...")
+                .foregroundStyle(.apTextSecondary)
+                .font(.subheadline)
         }
     }
 
