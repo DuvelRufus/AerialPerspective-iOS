@@ -21,7 +21,7 @@ struct ProjectListView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.apBackground.ignoresSafeArea()
+                APAmbientBackground()
 
                 if projectStore.isLoading {
                     ProgressView()

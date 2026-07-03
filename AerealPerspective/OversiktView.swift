@@ -32,7 +32,7 @@ struct OversiktView: View {
 
     var body: some View {
         ZStack {
-            Color.apBackground.ignoresSafeArea()
+            APAmbientBackground()
 
             if isLoading {
                 ProgressView()

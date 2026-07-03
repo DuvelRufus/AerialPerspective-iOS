@@ -56,7 +56,7 @@ struct PlanView: View {
 
     var body: some View {
         ZStack {
-            Color.apBackground.ignoresSafeArea()
+            APAmbientBackground()
             content
         }
         .preferredColorScheme(.dark)

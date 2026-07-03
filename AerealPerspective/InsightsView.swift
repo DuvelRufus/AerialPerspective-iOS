@@ -31,7 +31,7 @@ struct InsightsView: View {
 
     var body: some View {
         ZStack {
-            Color.apBackground.ignoresSafeArea()
+            APAmbientBackground()
             content
         }
         .navigationTitle("Insikter")

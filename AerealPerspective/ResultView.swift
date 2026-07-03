@@ -68,7 +68,7 @@ struct ResultView: View {
 
     var body: some View {
         ZStack {
-            Color.apBackground.ignoresSafeArea()
+            APAmbientBackground()
             if !hasLoadedScores {
                 ProgressView()
                     .tint(.apOrange)
