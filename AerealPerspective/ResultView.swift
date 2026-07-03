@@ -23,6 +23,11 @@ struct ResultView: View {
     @State private var showInsights = false
     @State private var previousScores: [DomainScore]? = nil
 
+    // Reveal animation: radar draws in, numbers count up, cells stagger in.
+    @State private var revealProgress: Double = 0
+    @State private var cellsRevealed = false
+    @State private var revealComplete = false
+
     init(
         assessment: Assessment,
         project: Project,
@@ -105,7 +110,7 @@ struct ResultView: View {
     private var resultContent: some View {
         ScrollView {
                 VStack(spacing: 32) {
-                    RadarChart(scores: domainScores)
+                    RadarChart(scores: domainScores, progress: revealProgress)
                         .frame(height: 300)
                         .padding(.horizontal, 16)
                         .padding(.top, 24)
@@ -121,6 +126,22 @@ struct ResultView: View {
                 }
                 .padding(.bottom, 32)
         }
+        .onAppear { reveal() }
+        .sensoryFeedback(.success, trigger: revealComplete)
+    }
+
+    /// Runs once when the results appear: the radar polygon blooms out from
+    /// the center while the bento cells stagger in and their numbers count up.
+    private func reveal() {
+        guard revealProgress == 0 else { return }
+        withAnimation(.spring(response: 0.9, dampingFraction: 0.8)) {
+            revealProgress = 1
+        }
+        cellsRevealed = true
+        Task {
+            try? await Task.sleep(for: .seconds(0.8))
+            revealComplete = true
+        }
     }
 
     // MARK: - Bento grid
@@ -130,8 +151,15 @@ struct ResultView: View {
             columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
             spacing: 12
         ) {
-            ForEach(domainScores, id: \.domain) { ds in
+            ForEach(Array(domainScores.enumerated()), id: \.element.domain) { index, ds in
                 domainCell(ds)
+                    .opacity(cellsRevealed ? 1 : 0)
+                    .offset(y: cellsRevealed ? 0 : 14)
+                    .animation(
+                        .spring(response: 0.45, dampingFraction: 0.8)
+                            .delay(0.15 + Double(index) * 0.06),
+                        value: cellsRevealed
+                    )
             }
         }
         .padding(.horizontal, 16)
@@ -147,11 +175,13 @@ struct ResultView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.apTextSecondary)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(ds.score)")
-                        .font(.title.bold())
+                    Text("\(cellsRevealed ? ds.score : 0)")
+                        .font(.title.bold().monospacedDigit())
+                        .contentTransition(.numericText(value: Double(cellsRevealed ? ds.score : 0)))
                         .foregroundStyle(.apTextPrimary)
                     if let delta = deltas?[ds.domain] {
                         deltaIndicator(delta)
+                            .transition(.scale.combined(with: .opacity))
                     } else if previousScores == nil {
                         deltaIndicator(0).hidden()
                     }
@@ -221,11 +251,14 @@ struct ResultView: View {
                 await questionStore.fetch()
             }
 
-            previousScores = ScoringService.compute(
+            let computed = ScoringService.compute(
                 answers: previousAnswerStore.answers,
                 questions: questionStore.questions,
                 options: questionStore.options
             )
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                previousScores = computed
+            }
         } catch {
             print("ResultView: loadPreviousScores error: \(error)")
         }
@@ -250,8 +283,16 @@ struct ResultView: View {
 
 // MARK: - Radar Chart
 
-private struct RadarChart: View {
+private struct RadarChart: View, @preconcurrency Animatable {
     let scores: [DomainScore]
+    var progress: Double = 1
+
+    // Lets SwiftUI interpolate `progress` frame by frame so the score
+    // polygon blooms out from the center instead of snapping into place.
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
 
     private static let gridLevels: [Double] = [0.33, 0.66, 1.0]
 
@@ -279,7 +320,13 @@ private struct RadarChart: View {
 
                 // Score polygon fill
                 scorePath(center: center, radius: radius, n: n)
-                    .fill(Color.apOrange.opacity(0.25))
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.apOrange.opacity(0.38), Color.apOrange.opacity(0.10)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
 
                 // Score polygon stroke
                 scorePath(center: center, radius: radius, n: n)
@@ -287,11 +334,12 @@ private struct RadarChart: View {
 
                 // Score dots
                 ForEach(0..<n, id: \.self) { i in
-                    let r = radius * Double(scores[i].score) / 100.0
+                    let r = radius * Double(scores[i].score) / 100.0 * progress
                     Circle()
                         .fill(Color.apOrange)
                         .frame(width: 7, height: 7)
                         .position(vertex(i: i, n: n, center: center, r: r))
+                        .opacity(progress)
                 }
 
                 // Domain labels
@@ -332,7 +380,7 @@ private struct RadarChart: View {
     private func scorePath(center: CGPoint, radius: Double, n: Int) -> Path {
         Path { p in
             for i in 0..<n {
-                let r = radius * Double(scores[i].score) / 100.0
+                let r = radius * Double(scores[i].score) / 100.0 * progress
                 let pt = vertex(i: i, n: n, center: center, r: r)
                 if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
             }
