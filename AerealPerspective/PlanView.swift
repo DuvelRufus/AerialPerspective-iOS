@@ -252,6 +252,8 @@ struct PlanView: View {
         } label: {
             statusIcon(item)
                 .font(.title3)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(.spring(response: 0.35, dampingFraction: 0.75), value: status(item))
         }
         .buttonStyle(.plain)
         .haptic(.light)

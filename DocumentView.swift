@@ -296,12 +296,18 @@ struct DocumentView: View {
     private func actionRow(_ action: ProjectAction) -> some View {
         HStack(spacing: 10) {
             Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                if action.isDone {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } else {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
                 Task { await actionStore.toggle(action) }
             } label: {
                 Image(systemName: action.isDone ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(action.isDone ? Color.apStrong : Color.apTextTertiary)
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: action.isDone)
             }
             .buttonStyle(.plain)
             .minTapTarget()
@@ -327,6 +333,7 @@ struct DocumentView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: action.isDone)
         .contextMenu {
             Button(role: .destructive) {
                 pendingDelete = .action(action)
