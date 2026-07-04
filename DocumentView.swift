@@ -220,6 +220,7 @@ struct DocumentView: View {
                     Spacer()
                     Text(ds.map { "\($0.score)" } ?? "–")
                         .font(.title2.bold())
+                        .fontDesign(.rounded)
                         .foregroundStyle(.apTextPrimary)
                     if let ds {
                         levelPill(ds.level)
@@ -276,6 +277,7 @@ struct DocumentView: View {
                 Spacer()
                 Text(ds.map { "\($0.score)" } ?? "–")
                     .font(.title2.bold())
+                    .fontDesign(.rounded)
                     .foregroundStyle(.apTextPrimary)
                 if let ds {
                     levelPill(ds.level)

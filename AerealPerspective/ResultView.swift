@@ -177,6 +177,7 @@ struct ResultView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("\(cellsRevealed ? ds.score : 0)")
                         .font(.title.bold().monospacedDigit())
+                        .fontDesign(.rounded)
                         .contentTransition(.numericText(value: Double(cellsRevealed ? ds.score : 0)))
                         .foregroundStyle(.apTextPrimary)
                     if let delta = deltas?[ds.domain] {
