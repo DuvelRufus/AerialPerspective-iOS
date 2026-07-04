@@ -17,6 +17,8 @@ struct OversiktView: View {
     @State private var openCounts: [UUID: Int] = [:]
     @State private var isLoading = true
     @State private var loadFailed = false
+    // Driver den staggrade "tänds upp"-effekten när heatmapen visas.
+    @State private var rowsRevealed = false
 
     private static let nameColumnWidth: CGFloat = 92
     private static let cellSpacing: CGFloat = 5
@@ -78,8 +80,20 @@ struct OversiktView: View {
         ScrollView {
             VStack(spacing: 8) {
                 headerRow
-                ForEach(rows) { row in
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     rowView(row)
+                        .opacity(rowsRevealed ? 1 : 0)
+                        .offset(y: rowsRevealed ? 0 : 10)
+                        .animation(
+                            .spring(response: 0.45, dampingFraction: 0.8)
+                                .delay(min(Double(index) * 0.06, 0.5)),
+                            value: rowsRevealed
+                        )
+                        .scrollTransition { content, phase in
+                            content
+                                .opacity(phase.isIdentity ? 1 : 0.5)
+                                .scaleEffect(phase.isIdentity ? 1 : 0.97)
+                        }
                 }
                 legend
                     .padding(.top, 12)
@@ -87,6 +101,7 @@ struct OversiktView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
         }
+        .onAppear { rowsRevealed = true }
         .refreshable { await loadOverview(showSpinner: false) }
     }
 

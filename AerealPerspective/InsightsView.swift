@@ -92,6 +92,11 @@ struct InsightsView: View {
                                     .delay(min(Double(index) * 0.07, 0.6)),
                                 value: cardsRevealed
                             )
+                            .scrollTransition { content, phase in
+                                content
+                                    .opacity(phase.isIdentity ? 1 : 0.5)
+                                    .scaleEffect(phase.isIdentity ? 1 : 0.96)
+                            }
                     }
                 }
                 .padding()

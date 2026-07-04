@@ -195,6 +195,7 @@ struct PlanView: View {
                     Capsule()
                         .fill(Color.apStrong)
                         .frame(width: total == 0 ? 0 : geo.size.width * CGFloat(done) / CGFloat(total), height: 4)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: done)
                 }
             }
             .frame(height: 4)
