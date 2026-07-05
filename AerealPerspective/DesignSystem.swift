@@ -126,39 +126,6 @@ struct APRowPressStyle: ButtonStyle {
     }
 }
 
-/// ButtonStyle that renders the label plainly and mirrors isPressed to a
-/// binding — for when the pressed surface (e.g. a whole card) is larger than
-/// the button's own label. No gestures, no haptic of its own.
-struct APPressReporterStyle: ButtonStyle {
-    @Binding var isPressed: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .onChange(of: configuration.isPressed) { _, pressed in
-                isPressed = pressed
-            }
-    }
-}
-
-/// Card-level press feedback with APRowPressStyle's exact values, plus a
-/// .light haptic on touch-down (not release). Drive it from a state mirrored
-/// out of the card's tap target via APPressReporterStyle.
-struct APCardPressEffect: ViewModifier {
-    let isPressed: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(isPressed ? 0.97 : 1.0)
-            .brightness(isPressed ? 0.04 : 0)
-            .shadow(color: isPressed ? Color.apOrange.opacity(0.25) : .clear, radius: 10)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
-            .onChange(of: isPressed) { _, pressed in
-                if pressed {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                }
-            }
-    }
-}
 
 struct APPillButton: View {
     let title: String

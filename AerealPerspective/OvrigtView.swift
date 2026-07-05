@@ -97,11 +97,11 @@ struct OvrigtView: View {
     // entrance replays each time the tab becomes visible.
     @State private var cardsRevealed = false
 
-    // Press state mirrored out of each header Button (APPressReporterStyle)
-    // so the whole card can scale/glow, not just the button's label.
-    @State private var notesPressed = false
-    @State private var linksPressed = false
-    @State private var contactsPressed = false
+    // Transient per-card glow pulse: flipped true on toggle-tap, auto-reset
+    // ~90 ms later by the header action so the flash never lingers.
+    @State private var notesPulsing = false
+    @State private var linksPulsing = false
+    @State private var contactsPulsing = false
 
     // MARK: Body
 
@@ -113,13 +113,13 @@ struct OvrigtView: View {
                     APSectionHeader(title: "ÖVRIGT")
                         .padding(.top, 12)
                     notesSection
-                        .modifier(APCardPressEffect(isPressed: notesPressed))
+                        .modifier(GlowPulse(active: notesPulsing))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 0))
                     linksSection
-                        .modifier(APCardPressEffect(isPressed: linksPressed))
+                        .modifier(GlowPulse(active: linksPulsing))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 1))
                     contactsSection
-                        .modifier(APCardPressEffect(isPressed: contactsPressed))
+                        .modifier(GlowPulse(active: contactsPulsing))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 2))
                 }
                 .padding(.horizontal, 16)
@@ -205,13 +205,22 @@ struct OvrigtView: View {
         subtitle: String? = nil,
         count: Int?,
         isExpanded: Bool,
-        isPressed: Binding<Bool>,
+        pulse: Binding<Bool>,
         onAdd: (() -> Void)?,
         onToggle: @escaping () -> Void
     ) -> some View {
         Button {
+            // Haptic + pulse live in the toggle action: once per completed
+            // tap, and the nested +-knappen (own action, hit-testing
+            // precedence) can never trigger them.
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            pulse.wrappedValue = true
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 onToggle()
+            }
+            Task {
+                try? await Task.sleep(for: .milliseconds(90))
+                pulse.wrappedValue = false
             }
         } label: {
             HStack(spacing: 12) {
@@ -260,10 +269,7 @@ struct OvrigtView: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        // Press feedback lives on the card (APCardPressEffect) and fires its
-        // .light haptic on touch-down — no release-time haptic here, or every
-        // tap would buzz twice.
-        .buttonStyle(APPressReporterStyle(isPressed: isPressed))
+        .buttonStyle(.plain)
         .minTapTarget()
     }
 
@@ -287,7 +293,7 @@ struct OvrigtView: View {
                     subtitle: noteSubtitle,
                     count: nil,
                     isExpanded: notesExpanded,
-                    isPressed: $notesPressed,
+                    pulse: $notesPulsing,
                     onAdd: nil
                 ) { notesExpanded.toggle() }
                 .contextMenu {
@@ -299,47 +305,53 @@ struct OvrigtView: View {
                 }
 
                 if notesExpanded {
-                    Divider()
-                        .background(Color.apHairline)
-                        .padding(.vertical, 10)
+                    // Layout-identical grouping (outer VStack is spacing 0 too);
+                    // exists so the body gets an explicit fade instead of the
+                    // default insertion pop while the card height springs open.
+                    VStack(alignment: .leading, spacing: 0) {
+                        Divider()
+                            .background(Color.apHairline)
+                            .padding(.vertical, 10)
 
-                    ZStack(alignment: .topLeading) {
-                        if noteStore.content.isEmpty {
-                            Text("Skriv projektdokumentation, beslut, arkitektur...")
+                        ZStack(alignment: .topLeading) {
+                            if noteStore.content.isEmpty {
+                                Text("Skriv projektdokumentation, beslut, arkitektur...")
+                                    .font(.body)
+                                    .foregroundStyle(.apTextTertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 4)
+                                    .allowsHitTesting(false)
+                            }
+                            TextEditor(text: $noteStore.content)
                                 .font(.body)
-                                .foregroundStyle(.apTextTertiary)
-                                .padding(.top, 8)
-                                .padding(.leading, 4)
-                                .allowsHitTesting(false)
+                                .foregroundStyle(.apTextPrimary)
+                                .scrollContentBackground(.hidden)
+                                .background(Color.clear)
+                                .frame(height: 220)
                         }
-                        TextEditor(text: $noteStore.content)
-                            .font(.body)
-                            .foregroundStyle(.apTextPrimary)
-                            .scrollContentBackground(.hidden)
-                            .background(Color.clear)
-                            .frame(height: 220)
-                    }
 
-                    HStack {
-                        Spacer()
-                        switch noteStore.status {
-                        case .idle:
-                            EmptyView()
-                        case .saving:
-                            Text("Sparar...")
-                                .font(.caption)
-                                .foregroundStyle(.apTextTertiary)
-                        case .saved(let date):
-                            Text("Sparat \(date.formatted(date: .omitted, time: .shortened))")
-                                .font(.caption)
-                                .foregroundStyle(.apTextTertiary)
-                        case .failed:
-                            Text("Kunde inte spara – ändringar osparade")
-                                .font(.caption)
-                                .foregroundStyle(.apRisk)
+                        HStack {
+                            Spacer()
+                            switch noteStore.status {
+                            case .idle:
+                                EmptyView()
+                            case .saving:
+                                Text("Sparar...")
+                                    .font(.caption)
+                                    .foregroundStyle(.apTextTertiary)
+                            case .saved(let date):
+                                Text("Sparat \(date.formatted(date: .omitted, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundStyle(.apTextTertiary)
+                            case .failed:
+                                Text("Kunde inte spara – ändringar osparade")
+                                    .font(.caption)
+                                    .foregroundStyle(.apRisk)
+                            }
                         }
+                        .padding(.top, 4)
                     }
-                    .padding(.top, 4)
+                    .transition(.opacity)
                 }
             }
         }
@@ -355,7 +367,7 @@ struct OvrigtView: View {
                     icon: "link",
                     count: links.isEmpty ? nil : links.count,
                     isExpanded: linksExpanded,
-                    isPressed: $linksPressed,
+                    pulse: $linksPulsing,
                     onAdd: { showAddLink = true }
                 ) { linksExpanded.toggle() }
 
@@ -427,7 +439,7 @@ struct OvrigtView: View {
                     icon: "person.2.fill",
                     count: contacts.isEmpty ? nil : contacts.count,
                     isExpanded: contactsExpanded,
-                    isPressed: $contactsPressed,
+                    pulse: $contactsPulsing,
                     onAdd: { showAddContact = true }
                 ) { contactsExpanded.toggle() }
 
@@ -562,6 +574,21 @@ struct OvrigtView: View {
         } catch {
             print("OvrigtView: delete error: \(error)")
         }
+    }
+}
+
+// MARK: - Glow pulse
+
+/// One soft apOrange flash tied to a toggle tap: quick ease-in rise while the
+/// transient flag is true, ease-out decay when the header action resets it.
+/// Keyed to its own value so the expand spring can't capture the shadow.
+private struct GlowPulse: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: Color.apOrange.opacity(active ? 0.3 : 0), radius: 12)
+            .animation(active ? .easeIn(duration: 0.08) : .easeOut(duration: 0.25), value: active)
     }
 }
 
