@@ -372,22 +372,27 @@ struct OvrigtView: View {
                 ) { linksExpanded.toggle() }
 
                 if linksExpanded {
-                    if links.isEmpty {
-                        Text("Inga länkar ännu")
-                            .font(.caption)
-                            .foregroundStyle(.apTextTertiary)
-                            .padding(.top, 12)
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(links) { link in
-                                linkRow(link)
-                                if link.id != links.last?.id {
-                                    Divider().background(Color.apHairline)
+                    // Same layout-identical wrapper + fade as Anteckningar so
+                    // all three cards reveal identically.
+                    VStack(alignment: .leading, spacing: 0) {
+                        if links.isEmpty {
+                            Text("Inga länkar ännu")
+                                .font(.caption)
+                                .foregroundStyle(.apTextTertiary)
+                                .padding(.top, 12)
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(links) { link in
+                                    linkRow(link)
+                                    if link.id != links.last?.id {
+                                        Divider().background(Color.apHairline)
+                                    }
                                 }
                             }
+                            .padding(.top, 10)
                         }
-                        .padding(.top, 10)
                     }
+                    .transition(.opacity)
                 }
             }
         }
@@ -444,22 +449,27 @@ struct OvrigtView: View {
                 ) { contactsExpanded.toggle() }
 
                 if contactsExpanded {
-                    if contacts.isEmpty {
-                        Text("Inga kontakter ännu")
-                            .font(.caption)
-                            .foregroundStyle(.apTextTertiary)
-                            .padding(.top, 12)
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(contacts) { contact in
-                                contactRow(contact)
-                                if contact.id != contacts.last?.id {
-                                    Divider().background(Color.apHairline)
+                    // Same layout-identical wrapper + fade as Anteckningar so
+                    // all three cards reveal identically.
+                    VStack(alignment: .leading, spacing: 0) {
+                        if contacts.isEmpty {
+                            Text("Inga kontakter ännu")
+                                .font(.caption)
+                                .foregroundStyle(.apTextTertiary)
+                                .padding(.top, 12)
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(contacts) { contact in
+                                    contactRow(contact)
+                                    if contact.id != contacts.last?.id {
+                                        Divider().background(Color.apHairline)
+                                    }
                                 }
                             }
+                            .padding(.top, 10)
                         }
-                        .padding(.top, 10)
                     }
+                    .transition(.opacity)
                 }
             }
         }
