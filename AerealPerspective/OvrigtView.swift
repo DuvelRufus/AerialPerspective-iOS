@@ -157,11 +157,34 @@ struct OvrigtView: View {
         }
     }
 
+    // MARK: - Glass card chrome
+
+    /// APCard plus a thin top-edge light line, shared by all three sections
+    /// so they stay on the exact same glass idiom.
+    private func glassSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        // APCard's stored closure is @escaping; capture the built view, not
+        // the non-escaping parameter.
+        let built = content()
+        return APCard { built }
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    colors: [.clear, Color.apOrange.opacity(0.5), .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: 1)
+                .padding(.horizontal, 20) // inset so the line sits inside the corner radius
+                .allowsHitTesting(false)
+            }
+    }
+
     // MARK: - Section header
 
     @ViewBuilder
     private func sectionHeader(
         title: String,
+        icon: String,
+        subtitle: String? = nil,
         count: Int?,
         isExpanded: Bool,
         onAdd: (() -> Void)?,
@@ -172,18 +195,33 @@ struct OvrigtView: View {
                 onToggle()
             }
         } label: {
-            HStack(spacing: 8) {
-                APSectionHeader(title: title)
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 11)
+                    .fill(Color.apOrange.opacity(0.14))
+                    .frame(width: 38, height: 38)
+                    .overlay {
+                        Image(systemName: icon)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.apOrange)
+                    }
+                VStack(alignment: .leading, spacing: 2) {
+                    APSectionHeader(title: title)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.apTextTertiary)
+                    }
+                }
+                Spacer()
                 if let count, count > 0 {
                     Text("\(count)")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.apOrange)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.apOrangeTint)
+                        .foregroundStyle(.apTextSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.white.opacity(0.07))
                         .clipShape(Capsule())
                 }
-                Spacer()
                 if let onAdd {
                     Button(action: onAdd) {
                         Image(systemName: "plus")
@@ -210,11 +248,22 @@ struct OvrigtView: View {
 
     // MARK: - Notes section
 
+    /// "senast ändrad HH:MM" — only when a save has happened this session;
+    /// NoteStore doesn't expose the persisted updated_at, so no value = no text.
+    private var noteSubtitle: String? {
+        if case .saved(let date) = noteStore.status {
+            return "senast ändrad \(date.formatted(date: .omitted, time: .shortened))"
+        }
+        return nil
+    }
+
     private var notesSection: some View {
-        APCard {
+        glassSection {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
                     title: "ANTECKNINGAR",
+                    icon: "note.text",
+                    subtitle: noteSubtitle,
                     count: nil,
                     isExpanded: notesExpanded,
                     onAdd: nil
@@ -277,10 +326,11 @@ struct OvrigtView: View {
     // MARK: - Links section
 
     private var linksSection: some View {
-        APCard {
+        glassSection {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
                     title: "LÄNKAR",
+                    icon: "link",
                     count: links.isEmpty ? nil : links.count,
                     isExpanded: linksExpanded,
                     onAdd: { showAddLink = true }
@@ -347,10 +397,11 @@ struct OvrigtView: View {
     // MARK: - Contacts section
 
     private var contactsSection: some View {
-        APCard {
+        glassSection {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
                     title: "KONTAKTER",
+                    icon: "person.2.fill",
                     count: contacts.isEmpty ? nil : contacts.count,
                     isExpanded: contactsExpanded,
                     onAdd: { showAddContact = true }
