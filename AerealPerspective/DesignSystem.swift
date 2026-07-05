@@ -81,18 +81,19 @@ extension LinearGradient {
 
 // MARK: - APAmbientBackground
 
-/// Full-screen background for main screens: the flat base color plus a
-/// barely-there orange glow bleeding down from the top, so screens read as
-/// lit rather than flat. Sheets keep plain apBackground for modal contrast.
+/// Full-screen background for main screens: the flat base color plus a warm
+/// orange glow rising from the bottom edge, radial falloff to black so the
+/// upper half stays effectively pure black (OLED/dark-first). Sheets keep
+/// plain apBackground for modal contrast.
 struct APAmbientBackground: View {
     var body: some View {
         ZStack {
             Color.apBackground
             RadialGradient(
-                colors: [Color.apOrange.opacity(0.09), .clear],
-                center: UnitPoint(x: 0.5, y: -0.2),
+                colors: [Color.apOrange.opacity(0.20), Color.apOrange.opacity(0.06), .clear],
+                center: UnitPoint(x: 0.5, y: 1.15),
                 startRadius: 0,
-                endRadius: 450
+                endRadius: 520
             )
         }
         .ignoresSafeArea()

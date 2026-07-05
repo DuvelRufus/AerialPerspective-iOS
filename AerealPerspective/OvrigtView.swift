@@ -92,6 +92,11 @@ struct OvrigtView: View {
 
     @State private var pendingDelete: DeleteIntent? = nil
 
+    // Entrance: cards fade + slide in staggered, same idiom as ResultView.
+    // Once per view instance — segment switches recreate the view, so the
+    // entrance replays each time the tab becomes visible.
+    @State private var cardsRevealed = false
+
     // MARK: Body
 
     var body: some View {
@@ -102,11 +107,15 @@ struct OvrigtView: View {
                     APSectionHeader(title: "ÖVRIGT")
                         .padding(.top, 12)
                     notesSection
+                        .modifier(CardEntrance(revealed: cardsRevealed, index: 0))
                     linksSection
+                        .modifier(CardEntrance(revealed: cardsRevealed, index: 1))
                     contactsSection
+                        .modifier(CardEntrance(revealed: cardsRevealed, index: 2))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                .onAppear { cardsRevealed = true }
             }
             .refreshable {
                 await fetchLinks()
@@ -538,6 +547,26 @@ struct OvrigtView: View {
         } catch {
             print("OvrigtView: delete error: \(error)")
         }
+    }
+}
+
+// MARK: - Card entrance
+
+/// Staggered fade + slide-up, same values as ResultView's bento reveal
+/// (offset 14, spring 0.45/0.8, 60 ms step) so the two screens feel identical.
+private struct CardEntrance: ViewModifier {
+    let revealed: Bool
+    let index: Int
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(revealed ? 1 : 0)
+            .offset(y: revealed ? 0 : 14)
+            .animation(
+                .spring(response: 0.45, dampingFraction: 0.8)
+                    .delay(0.05 + Double(index) * 0.06),
+                value: revealed
+            )
     }
 }
 
