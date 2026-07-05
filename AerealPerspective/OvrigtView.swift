@@ -97,6 +97,12 @@ struct OvrigtView: View {
     // entrance replays each time the tab becomes visible.
     @State private var cardsRevealed = false
 
+    // Press state mirrored out of each header Button (APPressReporterStyle)
+    // so the whole card can scale/glow, not just the button's label.
+    @State private var notesPressed = false
+    @State private var linksPressed = false
+    @State private var contactsPressed = false
+
     // MARK: Body
 
     var body: some View {
@@ -107,10 +113,13 @@ struct OvrigtView: View {
                     APSectionHeader(title: "ÖVRIGT")
                         .padding(.top, 12)
                     notesSection
+                        .modifier(APCardPressEffect(isPressed: notesPressed))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 0))
                     linksSection
+                        .modifier(APCardPressEffect(isPressed: linksPressed))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 1))
                     contactsSection
+                        .modifier(APCardPressEffect(isPressed: contactsPressed))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 2))
                 }
                 .padding(.horizontal, 16)
@@ -196,6 +205,7 @@ struct OvrigtView: View {
         subtitle: String? = nil,
         count: Int?,
         isExpanded: Bool,
+        isPressed: Binding<Bool>,
         onAdd: (() -> Void)?,
         onToggle: @escaping () -> Void
     ) -> some View {
@@ -250,8 +260,10 @@ struct OvrigtView: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .haptic(.light)
+        // Press feedback lives on the card (APCardPressEffect) and fires its
+        // .light haptic on touch-down — no release-time haptic here, or every
+        // tap would buzz twice.
+        .buttonStyle(APPressReporterStyle(isPressed: isPressed))
         .minTapTarget()
     }
 
@@ -275,6 +287,7 @@ struct OvrigtView: View {
                     subtitle: noteSubtitle,
                     count: nil,
                     isExpanded: notesExpanded,
+                    isPressed: $notesPressed,
                     onAdd: nil
                 ) { notesExpanded.toggle() }
                 .contextMenu {
@@ -342,6 +355,7 @@ struct OvrigtView: View {
                     icon: "link",
                     count: links.isEmpty ? nil : links.count,
                     isExpanded: linksExpanded,
+                    isPressed: $linksPressed,
                     onAdd: { showAddLink = true }
                 ) { linksExpanded.toggle() }
 
@@ -413,6 +427,7 @@ struct OvrigtView: View {
                     icon: "person.2.fill",
                     count: contacts.isEmpty ? nil : contacts.count,
                     isExpanded: contactsExpanded,
+                    isPressed: $contactsPressed,
                     onAdd: { showAddContact = true }
                 ) { contactsExpanded.toggle() }
 
