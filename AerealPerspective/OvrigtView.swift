@@ -398,6 +398,12 @@ struct OvrigtView: View {
         }
     }
 
+    /// S7: only http(s) ever reaches UIApplication.open — delegates to the
+    /// policy shared with AddLinkSheet's save path so the two can't diverge.
+    private func validatedLinkURL(from raw: String) -> URL? {
+        LinkURLPolicy.normalized(from: raw)
+    }
+
     private func linkRow(_ link: ProjectLink) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
@@ -421,9 +427,9 @@ struct OvrigtView: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture {
-            if let url = URL(string: link.url) {
-                UIApplication.shared.open(url)
-            }
+            guard let url = validatedLinkURL(from: link.url) else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            UIApplication.shared.open(url)
         }
         .contextMenu {
             Button(role: .destructive) {
@@ -622,6 +628,21 @@ private struct CardEntrance: ViewModifier {
     }
 }
 
+// MARK: - Link URL policy
+
+/// S7 policy shared by open (linkRow) and save (AddLinkSheet): http(s) only,
+/// scheme-less input ("www.hira.se") normalized to https, everything else nil.
+private enum LinkURLPolicy {
+    static func normalized(from raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let url = URL(string: trimmed) else { return nil }
+        if let scheme = url.scheme?.lowercased() {
+            return (scheme == "http" || scheme == "https") ? url : nil
+        }
+        return URL(string: "https://" + trimmed)
+    }
+}
+
 // MARK: - Add Link Sheet
 
 private enum LinkCategory: String, CaseIterable {
@@ -678,12 +699,16 @@ private struct AddLinkSheet: View {
                         .pickerStyle(.segmented)
                     }
 
-                    let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty || url.trimmingCharacters(in: .whitespaces).isEmpty
+                    // Invalid URL gets the same treatment empty input always
+                    // had: dimmed, disabled Spara. Normalized on save so the
+                    // open-side guard is a pure backstop.
+                    let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
+                        || LinkURLPolicy.normalized(from: url) == nil
                     APPillButton(title: "Spara", action: {
                         let t = title.trimmingCharacters(in: .whitespaces)
-                        let u = url.trimmingCharacters(in: .whitespaces)
-                        guard !t.isEmpty, !u.isEmpty else { return }
-                        onSave(t, u, category.rawValue)
+                        guard !t.isEmpty,
+                              let normalized = LinkURLPolicy.normalized(from: url) else { return }
+                        onSave(t, normalized.absoluteString, category.rawValue)
                         dismiss()
                     })
                     .opacity(isDisabled ? 0.5 : 1)
