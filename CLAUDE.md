@@ -23,6 +23,13 @@ Om arbetsträdet har ocommittad kod vid sessionsstart: påtala det och fråga om
 - Commit-meddelanden beskriver vad + varför, inte bara vad.
 - Stapla inte orelaterade ändringar i samma commit. Om arbetsträdet har ocommittade ändringar från ett tidigare pass, committa dem separat innan nytt arbete läggs ovanpå.
 
+## Git workflow
+- After each change that builds cleanly (BUILD SUCCEEDED), commit it immediately as its own unit before moving to the next change.
+- Immediately after committing, run `git log --oneline -1` and show the output to confirm the commit actually landed. Never report a commit as done without this confirmation.
+- One logical change per commit. Never combine unrelated changes in a single commit. If the working tree already holds unrelated edits, stop and flag it instead of committing them together.
+- Stage explicit file paths (e.g. `git add path/to/File.swift`), never `git add .`, so unrelated changes aren't pulled in.
+- NEVER push. Push is always manual, done by Danny only, after he has device-tested. Do not run `git push` under any circumstance.
+
 ## Aktuella kända, ej åtgärdade punkter
 
 Håll denna korta lista uppdaterad när vi medvetet skjuter upp något. Ta bort poster när de åtgärdas.
