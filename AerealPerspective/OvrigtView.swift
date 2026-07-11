@@ -103,6 +103,11 @@ struct OvrigtView: View {
     @State private var linksPulsing = false
     @State private var contactsPulsing = false
 
+    // Swipe-to-delete: id of the link row whose delete affordance is revealed.
+    // Parent-owned so opening one row snaps every other row closed.
+    @State private var openSwipeLinkId: UUID? = nil
+    @State private var openSwipeContactId: UUID? = nil
+
     // MARK: Body
 
     var body: some View {
@@ -159,7 +164,16 @@ struct OvrigtView: View {
             pendingDelete?.title ?? "",
             isPresented: Binding(
                 get: { pendingDelete != nil },
-                set: { if !$0 { pendingDelete = nil } }
+                set: {
+                    if !$0 {
+                        pendingDelete = nil
+                        // Cancel or confirm: spring any revealed swipe row shut.
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            openSwipeLinkId = nil
+                            openSwipeContactId = nil
+                        }
+                    }
+                }
             ),
             titleVisibility: .visible
         ) {
@@ -384,6 +398,9 @@ struct OvrigtView: View {
                             VStack(spacing: 0) {
                                 ForEach(links) { link in
                                     linkRow(link)
+                                        .swipeToDelete(id: link.id, openId: $openSwipeLinkId) {
+                                            pendingDelete = .link(link)
+                                        }
                                     if link.id != links.last?.id {
                                         Divider().background(Color.apHairline)
                                     }
@@ -431,13 +448,6 @@ struct OvrigtView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             UIApplication.shared.open(url)
         }
-        .contextMenu {
-            Button(role: .destructive) {
-                pendingDelete = .link(link)
-            } label: {
-                Label("Radera", systemImage: "trash")
-            }
-        }
     }
 
     // MARK: - Contacts section
@@ -467,6 +477,9 @@ struct OvrigtView: View {
                             VStack(spacing: 0) {
                                 ForEach(contacts) { contact in
                                     contactRow(contact)
+                                        .swipeToDelete(id: contact.id, openId: $openSwipeContactId) {
+                                            pendingDelete = .contact(contact)
+                                        }
                                     if contact.id != contacts.last?.id {
                                         Divider().background(Color.apHairline)
                                     }
@@ -502,13 +515,6 @@ struct OvrigtView: View {
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-        .contextMenu {
-            Button(role: .destructive) {
-                pendingDelete = .contact(contact)
-            } label: {
-                Label("Radera", systemImage: "trash")
-            }
-        }
     }
 
     // MARK: - Fetch
@@ -590,6 +596,124 @@ struct OvrigtView: View {
         } catch {
             print("OvrigtView: delete error: \(error)")
         }
+    }
+}
+
+// MARK: - Swipe to delete
+
+/// Custom swipe-to-delete for rows in a ScrollView (no List here, so native
+/// .swipeActions is unavailable). Left-swipe reveals a trash affordance with
+/// rubber-band resistance; release past the commit threshold or a tap on the
+/// trash calls onDelete — which presents the existing confirmation, nothing
+/// deletes directly. Parent-owned openId keeps at most one row revealed.
+private struct SwipeToDeleteModifier: ViewModifier {
+    let id: UUID
+    @Binding var openId: UUID?
+    let onDelete: () -> Void
+
+    /// Live finger translation; 0 when no drag is in flight.
+    @State private var dragTranslation: CGFloat = 0
+    /// Latched on the first onChanged of each gesture: true = horizontal
+    /// (track it), false = vertical (ignore — the ScrollView owns it).
+    @State private var isHorizontalDrag: Bool? = nil
+
+    private static let revealWidth: CGFloat = 72
+    private static let openThreshold: CGFloat = 36
+    private static let commitThreshold: CGFloat = 120
+    private static let snapSpring: Animation = .spring(response: 0.3, dampingFraction: 0.7)
+
+    private var isOpen: Bool { openId == id }
+
+    /// Base position plus finger translation, clamped right at 0 and
+    /// rubber-banded (excess ÷ 3) past the reveal width.
+    private var currentOffset: CGFloat {
+        let base: CGFloat = isOpen ? -Self.revealWidth : 0
+        var offset = base + dragTranslation
+        if offset > 0 { offset = 0 }
+        if offset < -Self.revealWidth {
+            offset = -Self.revealWidth + (offset + Self.revealWidth) / 3
+        }
+        return offset
+    }
+
+    func body(content: Content) -> some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                onDelete()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: Self.revealWidth)
+                    .frame(maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.apRisk))
+            }
+            .buttonStyle(.plain)
+            .allowsHitTesting(isOpen)
+            // The row is transparent glass, so occlusion can't hide the red:
+            // mask it to the strip the row has vacated instead — invisible at
+            // rest, revealed exactly where the row slid away.
+            .mask(alignment: .trailing) {
+                Rectangle()
+                    .frame(width: max(0, -currentOffset))
+            }
+
+            content
+                .overlay {
+                    // Only while revealed: first tap snaps closed instead of
+                    // opening the URL. Applied BEFORE .offset so it translates
+                    // with the row — after .offset it would sit on the unmoved
+                    // layout frame and cover the vacated trash strip.
+                    if isOpen {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(Self.snapSpring) { openId = nil }
+                            }
+                    }
+                }
+                .offset(x: currentOffset)
+                .gesture(drag)
+        }
+        .clipped()
+        .animation(Self.snapSpring, value: openId)
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                if isHorizontalDrag == nil {
+                    isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                }
+                guard isHorizontalDrag == true else { return }
+                dragTranslation = value.translation.width
+            }
+            .onEnded { _ in
+                defer { isHorizontalDrag = nil }
+                guard isHorizontalDrag == true else { return }
+                let released = currentOffset
+                withAnimation(Self.snapSpring) {
+                    dragTranslation = 0
+                    if released < -Self.commitThreshold {
+                        openId = id
+                        onDelete()
+                    } else if released < -Self.openThreshold {
+                        openId = id
+                    } else {
+                        openId = nil
+                    }
+                }
+            }
+    }
+}
+
+extension View {
+    fileprivate func swipeToDelete(
+        id: UUID,
+        openId: Binding<UUID?>,
+        onDelete: @escaping () -> Void
+    ) -> some View {
+        modifier(SwipeToDeleteModifier(id: id, openId: openId, onDelete: onDelete))
     }
 }
 
