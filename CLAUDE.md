@@ -18,7 +18,7 @@ Om arbetsträdet har ocommittad kod vid sessionsstart: påtala det och fråga om
 ## Commit-disciplin
 
 - Committa per verifierad feature, inte per session. En commit = en logisk, byggd och verifierad ändring.
-- Pusha aldrig utan explicit godkännande från Danny.
+- Kör aldrig `git push`. Danny pushar alltid själv, manuellt (se Git workflow nedan).
 - Verifiera alltid med `xcodebuild` -> BUILD SUCCEEDED innan commit.
 - Commit-meddelanden beskriver vad + varför, inte bara vad.
 - Stapla inte orelaterade ändringar i samma commit. Om arbetsträdet har ocommittade ändringar från ett tidigare pass, committa dem separat innan nytt arbete läggs ovanpå.
