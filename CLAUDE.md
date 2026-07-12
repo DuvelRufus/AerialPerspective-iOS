@@ -18,7 +18,7 @@ Om arbetsträdet har ocommittad kod vid sessionsstart: påtala det och fråga om
 ## Commit-disciplin
 
 - Committa per verifierad feature, inte per session. En commit = en logisk, byggd och verifierad ändring.
-- Kör aldrig `git push`. Danny pushar alltid själv, manuellt (se Git workflow nedan).
+- Pusha aldrig på eget initiativ — endast på Dannys uttryckliga begäran (se Push policy nedan).
 - Verifiera alltid med `xcodebuild` -> BUILD SUCCEEDED innan commit.
 - Commit-meddelanden beskriver vad + varför, inte bara vad.
 - Stapla inte orelaterade ändringar i samma commit. Om arbetsträdet har ocommittade ändringar från ett tidigare pass, committa dem separat innan nytt arbete läggs ovanpå.
@@ -28,7 +28,15 @@ Om arbetsträdet har ocommittad kod vid sessionsstart: påtala det och fråga om
 - Immediately after committing, run `git log --oneline -1` and show the output to confirm the commit actually landed. Never report a commit as done without this confirmation.
 - One logical change per commit. Never combine unrelated changes in a single commit. If the working tree already holds unrelated edits, stop and flag it instead of committing them together.
 - Stage explicit file paths (e.g. `git add path/to/File.swift`), never `git add .`, so unrelated changes aren't pulled in.
-- NEVER push. Push is always manual, done by Danny only, after he has device-tested. Do not run `git push` under any circumstance.
+- Never push proactively — see Push policy below.
+
+## Push policy
+- Claude never pushes automatically or proactively: not after a green build,
+  not as part of any workflow, not to be helpful. Default is commit-only.
+- Claude pushes ONLY when Danny explicitly asks in that instruction
+  (e.g. "push", "pusha", "git push"). An explicit request is the sole trigger.
+- Danny device-tests on iPhone 14 before asking for a push. Claude does not
+  verify testing; Danny's explicit request is his confirmation it is ready.
 
 ## Aktuella kända, ej åtgärdade punkter
 
