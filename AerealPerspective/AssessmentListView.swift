@@ -18,9 +18,10 @@ struct AssessmentListView: View {
     @State private var createError: String? = nil
     @State private var answeredCounts: [UUID: Int] = [:]
     /// Assessments that have at least one insights row — drives the
-    /// "Insikter" chip. Plan presence needs no extra state: it rides along
-    /// on assessments.plan, already loaded with the list.
+    /// "Insikter" chip.
     @State private var insightAssessmentIds: Set<UUID> = []
+    /// Assessments with an active plans row — drives the "Plan" chip.
+    @State private var planAssessmentIds: Set<UUID> = []
 
     var body: some View {
         ZStack {
@@ -36,6 +37,7 @@ struct AssessmentListView: View {
                         await assessmentStore.fetch(projectId: project.id)
                         await fetchAnsweredCounts()
                         await fetchInsightIds()
+                        await fetchPlanIds()
                     }
                 }
             } else if assessmentStore.assessments.isEmpty {
@@ -51,6 +53,7 @@ struct AssessmentListView: View {
             await assessmentStore.fetch(projectId: project.id)
             await fetchAnsweredCounts()
             await fetchInsightIds()
+            await fetchPlanIds()
         }
     }
 
@@ -123,6 +126,7 @@ struct AssessmentListView: View {
             await assessmentStore.fetch(projectId: project.id)
             await fetchAnsweredCounts()
             await fetchInsightIds()
+            await fetchPlanIds()
         }
     }
 
@@ -159,7 +163,7 @@ struct AssessmentListView: View {
                             // progress line below carries the row's state.
                             HStack(spacing: 6) {
                                 generationChip("Insikter", generated: insightAssessmentIds.contains(assessment.id))
-                                generationChip("Plan", generated: assessment.plan != nil)
+                                generationChip("Plan", generated: planAssessmentIds.contains(assessment.id))
                             }
                             .padding(.top, 2)
                         } else {
@@ -223,6 +227,31 @@ struct AssessmentListView: View {
             answeredCounts = counts
         } catch {
             print("AssessmentListView: fetchAnsweredCounts error: \(error)")
+        }
+    }
+
+    /// One batched existence query for the whole list (no N+1): which
+    /// assessments have an active plans row.
+    private func fetchPlanIds() async {
+        let ids = assessmentStore.assessments.map { $0.id.uuidString }
+        guard !ids.isEmpty else { return }
+        struct PlanRef: Decodable {
+            let assessmentId: UUID
+            enum CodingKeys: String, CodingKey {
+                case assessmentId = "assessment_id"
+            }
+        }
+        do {
+            let rows: [PlanRef] = try await supabase
+                .from("plans")
+                .select("assessment_id")
+                .eq("is_active", value: true)
+                .in("assessment_id", values: ids)
+                .execute()
+                .value
+            planAssessmentIds = Set(rows.map(\.assessmentId))
+        } catch {
+            print("AssessmentListView: fetchPlanIds error: \(error)")
         }
     }
 

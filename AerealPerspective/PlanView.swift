@@ -13,19 +13,19 @@ import Supabase
 // MARK: - Flattened to-do item
 
 private struct PlanItem: Identifiable {
-    let action: PlanAction
+    let id: UUID             // plan_actions.id — what tasks link back to
+    let text: String
+    let domain: String?
     let phaseIndex: Int      // 0 = 1–30, 1 = 31–60, 2 = 61–90
     let phaseLabel: String   // "Dag 1–30"
     let order: Int           // original flat index, for stable sorting
 
-    var id: UUID? { action.id }
-
     /// First sentence of the text, split on the first ". ".
     var shortText: String {
-        if let range = action.text.range(of: ". ") {
-            return String(action.text[..<range.lowerBound]) + "."
+        if let range = text.range(of: ". ") {
+            return String(text[..<range.lowerBound]) + "."
         }
-        return action.text
+        return text
     }
 }
 
@@ -36,7 +36,10 @@ struct PlanView: View {
 
     // Source assessment context
     @State private var sourceAssessment: Assessment? = nil
-    @State private var plan: PlanResult? = nil
+    /// Built once per load() — from plan_actions rows, or from the legacy
+    /// JSONB fallback. Non-empty exactly when sourceAssessment != nil.
+    @State private var items: [PlanItem] = []
+    @State private var planStore = PlanStore()
     @State private var domainScores: [DomainScore] = []
     @State private var answerStore = AnswerStore()
 
@@ -83,8 +86,8 @@ struct PlanView: View {
             APGeneratingState(phrases: Self.generationPhrases)
         } else if isLoading {
             loadingState("Laddar plan...")
-        } else if let plan {
-            todoList(plan)
+        } else if sourceAssessment != nil {
+            todoList
         } else {
             emptyState
         }
@@ -134,8 +137,8 @@ struct PlanView: View {
 
     // MARK: - To-do list
 
-    private func todoList(_ plan: PlanResult) -> some View {
-        let items = sortedItems(plan)
+    private var todoList: some View {
+        let items = sortedItems()
         let total = items.count
         let done = items.filter { isDone($0) }.count
 
@@ -204,42 +207,36 @@ struct PlanView: View {
         }
     }
 
-    @ViewBuilder
     private func itemRow(_ item: PlanItem) -> some View {
-        if let id = item.id {
-            // Swipe-commit routes through the same handler as the circle tap:
-            // insert-as-done for unlinked rows, toggle for open ones. Done
-            // (and pending) rows are inert — un-completing stays on the tap.
-            rowContent(item)
-                .swipeToComplete(id: id, enabled: !isDone(item), openId: $openSwipeId) {
-                    handleCircleTap(item)
-                }
-        } else {
-            rowContent(item)
-        }
+        // Swipe-commit routes through the same handler as the circle tap:
+        // insert-as-done for unlinked rows, toggle for open ones. Done
+        // (and pending) rows are inert — un-completing stays on the tap.
+        rowContent(item)
+            .swipeToComplete(id: item.id, enabled: !isDone(item), openId: $openSwipeId) {
+                handleCircleTap(item)
+            }
     }
 
     @ViewBuilder
     private func rowContent(_ item: PlanItem) -> some View {
         let done = isDone(item)
-        let expanded = item.id.map { expandedItems.contains($0) } ?? false
+        let expanded = expandedItems.contains(item.id)
 
         HStack(alignment: .top, spacing: 12) {
             statusCircle(item)
 
             Button {
-                guard let id = item.id else { return }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    if expandedItems.contains(id) {
-                        expandedItems.remove(id)
+                    if expandedItems.contains(item.id) {
+                        expandedItems.remove(item.id)
                     } else {
-                        expandedItems.insert(id)
+                        expandedItems.insert(item.id)
                     }
                 }
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(expanded ? item.action.text : item.shortText)
+                    Text(expanded ? item.text : item.shortText)
                         .font(.subheadline)
                         .strikethrough(done)
                         .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
@@ -252,7 +249,6 @@ struct PlanView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(item.id == nil)
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .semibold))
@@ -294,19 +290,17 @@ struct PlanView: View {
     // MARK: - Status
 
     private func linkedAction(_ item: PlanItem) -> ProjectAction? {
-        guard let id = item.id else { return nil }
-        return actionStore.action(forPlanItem: id)
+        actionStore.action(forPlanItem: item.id)
     }
 
     private func isDone(_ item: PlanItem) -> Bool {
         if let action = linkedAction(item) { return action.isDone }
-        if let id = item.id, pendingPlanIds.contains(id) { return true }
-        return false
+        return pendingPlanIds.contains(item.id)
     }
 
     private func metadataLine(_ item: PlanItem) -> String {
-        // PlanAction.domain is the action's category, shown only when present.
-        if let raw = item.action.domain, Domain(rawValue: raw) != nil {
+        // The item's domain is the action's category, shown only when present.
+        if let raw = item.domain, Domain(rawValue: raw) != nil {
             return "\(item.phaseLabel) · \(raw)"
         }
         return item.phaseLabel
@@ -315,23 +309,22 @@ struct PlanView: View {
     // MARK: - Circle tap
 
     private func handleCircleTap(_ item: PlanItem) {
-        guard let id = item.id else { return }
         if let action = linkedAction(item) {
             // Un-toggling done goes back to "open" (draws as the empty
             // circle), never deletes — the linked Åtgärd row must survive.
             Task { await actionStore.toggle(action) }
-        } else if !pendingPlanIds.contains(id) {
-            createLinkedAction(item, id: id)
+        } else if !pendingPlanIds.contains(item.id) {
+            createLinkedAction(item)
         }
     }
 
-    private func createLinkedAction(_ item: PlanItem, id: UUID) {
+    private func createLinkedAction(_ item: PlanItem) {
         // One tap marks it done directly, inserting the linked action with
         // status "done". Use the plan item's domain when present; otherwise
         // silently default to the source assessment's lowest-scoring domain —
         // only as the action's domain, never shown in the plan metadata line.
         let domain: Domain
-        if let raw = item.action.domain, let resolved = Domain(rawValue: raw) {
+        if let raw = item.domain, let resolved = Domain(rawValue: raw) {
             domain = resolved
         } else if let lowest = domainScores.min(by: { $0.score < $1.score })?.domain {
             domain = lowest
@@ -339,31 +332,74 @@ struct PlanView: View {
             domain = .team
         }
 
-        pendingPlanIds.insert(id) // optimistic: flip to done immediately
+        pendingPlanIds.insert(item.id) // optimistic: flip to done immediately
 
         Task {
             do {
                 try await actionStore.add(
                     projectId: project.id,
                     domain: domain.rawValue,
-                    title: item.action.text,
+                    title: item.text,
                     status: "done",
                     assessmentId: sourceAssessment?.id,
-                    planActionId: id,
+                    planActionId: item.id,
                     createdFromScore: domainScores.first { $0.domain == domain }?.score
                 )
-                pendingPlanIds.remove(id)
+                pendingPlanIds.remove(item.id)
             } catch {
-                pendingPlanIds.remove(id)
+                pendingPlanIds.remove(item.id)
                 errorMessage = error.localizedDescription
                 print("PlanView: createLinkedAction error: \(error)")
             }
         }
     }
 
-    // MARK: - Sorting
+    // MARK: - Items
 
-    private func flatItems(_ plan: PlanResult) -> [PlanItem] {
+    private static func phaseIndex(_ phase: String) -> Int {
+        switch phase {
+        case "day1_30": return 0
+        case "day31_60": return 1
+        case "day61_90": return 2
+        default: return 3 // unknown phase: render last instead of failing
+        }
+    }
+
+    private static func phaseLabel(_ phase: String) -> String {
+        switch phase {
+        case "day1_30": return "Dag 1–30"
+        case "day31_60": return "Dag 31–60"
+        case "day61_90": return "Dag 61–90"
+        default: return phase
+        }
+    }
+
+    /// Items from plan_actions rows — ids are the rows' primary keys, the
+    /// same values backfilled from the old embedded ids, so existing task
+    /// links resolve unchanged.
+    private func makeItems(from rows: [PlanActionRow]) -> [PlanItem] {
+        let ordered = rows.sorted { a, b in
+            let ai = Self.phaseIndex(a.phase)
+            let bi = Self.phaseIndex(b.phase)
+            if ai != bi { return ai < bi }
+            return a.sortOrder < b.sortOrder
+        }
+        return ordered.enumerated().map { index, row in
+            PlanItem(
+                id: row.id,
+                text: row.text,
+                domain: row.domain,
+                phaseIndex: Self.phaseIndex(row.phase),
+                phaseLabel: Self.phaseLabel(row.phase),
+                order: index
+            )
+        }
+    }
+
+    /// Fallback items from a legacy JSONB plan without a plans row. Ids
+    /// missing in the JSON are minted once per load, so expand state stays
+    /// stable across renders within a session.
+    private func makeItems(fromLegacy plan: PlanResult) -> [PlanItem] {
         let phases: [(Int, String, PlanPhase)] = [
             (0, "Dag 1–30", plan.day1_30),
             (1, "Dag 31–60", plan.day31_60),
@@ -373,7 +409,14 @@ struct PlanView: View {
         var order = 0
         for (index, label, phase) in phases {
             for action in phase.actions {
-                items.append(PlanItem(action: action, phaseIndex: index, phaseLabel: label, order: order))
+                items.append(PlanItem(
+                    id: action.id ?? UUID(),
+                    text: action.text,
+                    domain: action.domain,
+                    phaseIndex: index,
+                    phaseLabel: label,
+                    order: order
+                ))
                 order += 1
             }
         }
@@ -382,8 +425,8 @@ struct PlanView: View {
 
     /// Undone first, done last. Within each group, preserve phase order
     /// (and original order within a phase) via the stable `order` tiebreaker.
-    private func sortedItems(_ plan: PlanResult) -> [PlanItem] {
-        flatItems(plan).sorted { a, b in
+    private func sortedItems() -> [PlanItem] {
+        items.sorted { a, b in
             let aDone = isDone(a)
             let bDone = isDone(b)
             if aDone != bDone { return !aDone }
@@ -404,16 +447,29 @@ struct PlanView: View {
 
         let byNewest = assessmentStore.assessments.sorted { $0.version > $1.version }
 
-        // Source: latest assessment that already has a plan.
-        if let source = byNewest.first(where: { $0.plan != nil }) {
+        // Primary source: the active plans row of the newest assessment that
+        // has one.
+        await planStore.loadNewestActivePlan(assessmentIdsNewestFirst: byNewest.map(\.id))
+
+        if let activePlan = planStore.activePlan,
+           let source = byNewest.first(where: { $0.id == activePlan.assessmentId }) {
             sourceAssessment = source
-            plan = source.plan
+            items = makeItems(from: planStore.actions)
+            generateTarget = nil
+            await loadScores(for: source)
+        } else if let source = byNewest.first(where: { $0.plan != nil }),
+                  let legacy = source.plan {
+            // Fallback: a JSONB plan without a plans row (defensive
+            // post-backfill; also covers a plan generated before writes
+            // move to rows). Display parity only.
+            sourceAssessment = source
+            items = makeItems(fromLegacy: legacy)
             generateTarget = nil
             await loadScores(for: source)
         } else {
             // No plan anywhere: offer to generate for the latest completed one.
             sourceAssessment = nil
-            plan = nil
+            items = []
             generateTarget = await latestCompleted(in: byNewest)
             if let target = generateTarget {
                 await loadScores(for: target)

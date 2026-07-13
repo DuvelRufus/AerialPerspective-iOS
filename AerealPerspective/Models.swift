@@ -174,3 +174,47 @@ struct PlanResult: Codable {
     var day31_60: PlanPhase
     var day61_90: PlanPhase
 }
+
+// MARK: - Plan rows (plans / plan_actions tables)
+
+/// A generated plan as a row. Archived plans keep isActive == false; a
+/// partial unique index guarantees at most one active plan per assessment.
+struct Plan: Identifiable, Codable {
+    let id: UUID
+    var assessmentId: UUID
+    var summary: String
+    var focusDay1_30: String
+    var focusDay31_60: String
+    var focusDay61_90: String
+    var isActive: Bool
+    var createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, summary
+        case assessmentId = "assessment_id"
+        case focusDay1_30 = "focus_day1_30"
+        case focusDay31_60 = "focus_day31_60"
+        case focusDay61_90 = "focus_day61_90"
+        case isActive = "is_active"
+        case createdAt = "created_at"
+    }
+}
+
+/// One plan action row — the stable identity actions.plan_action_id points
+/// at. `phase` stays a String so an unexpected DB value can't fail decoding.
+struct PlanActionRow: Identifiable, Codable {
+    let id: UUID
+    var planId: UUID
+    var phase: String
+    var text: String
+    var domain: String?
+    var sortOrder: Int
+    var createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, phase, text, domain
+        case planId = "plan_id"
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+    }
+}
