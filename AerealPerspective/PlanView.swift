@@ -45,8 +45,8 @@ struct PlanView: View {
 
     // Row state
     @State private var expandedItems: Set<UUID> = []
-    /// Plan item ids whose linked action is being created — drives optimistic
-    /// "Pågår" before the inserted action lands in actionStore.actions.
+    /// Plan item ids whose done-marked action is being inserted — renders as
+    /// done before the row lands in actionStore.actions.
     @State private var pendingPlanIds: Set<UUID> = []
 
     // View state
@@ -290,13 +290,15 @@ struct PlanView: View {
             return action.isDone ? .done : .inProgress
         }
         if let id = item.id, pendingPlanIds.contains(id) {
-            return .inProgress
+            return .done
         }
         return .notStarted
     }
 
     private func isDone(_ item: PlanItem) -> Bool {
-        linkedAction(item)?.isDone ?? false
+        if let action = linkedAction(item) { return action.isDone }
+        if let id = item.id, pendingPlanIds.contains(id) { return true }
+        return false
     }
 
     private func metadataLine(_ item: PlanItem) -> String {
@@ -315,14 +317,16 @@ struct PlanView: View {
         case .notStarted:
             createLinkedAction(item, id: id)
         case .inProgress, .done:
-            // Non-destructive: surfacing the action in Åtgärder needs cross-tab
-            // coordination DocumentView doesn't support, so this is a no-op.
-            break
+            // Un-toggling done goes back to "open" (orange), never deletes —
+            // the linked Åtgärd row must survive.
+            guard let action = linkedAction(item) else { return }
+            Task { await actionStore.toggle(action) }
         }
     }
 
     private func createLinkedAction(_ item: PlanItem, id: UUID) {
-        // One tap, no sheet. Use the plan item's domain when present; otherwise
+        // One tap marks it done directly, inserting the linked action with
+        // status "done". Use the plan item's domain when present; otherwise
         // silently default to the source assessment's lowest-scoring domain —
         // only as the action's domain, never shown in the plan metadata line.
         let domain: Domain
@@ -334,8 +338,7 @@ struct PlanView: View {
             domain = .team
         }
 
-        pendingPlanIds.insert(id) // optimistic: flip to "Pågår" immediately
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        pendingPlanIds.insert(id) // optimistic: flip to done immediately
 
         Task {
             do {
@@ -343,10 +346,12 @@ struct PlanView: View {
                     projectId: project.id,
                     domain: domain.rawValue,
                     title: item.action.text,
+                    status: "done",
                     assessmentId: sourceAssessment?.id,
                     planActionId: id,
                     createdFromScore: domainScores.first { $0.domain == domain }?.score
                 )
+                pendingPlanIds.remove(id)
             } catch {
                 pendingPlanIds.remove(id)
                 errorMessage = error.localizedDescription

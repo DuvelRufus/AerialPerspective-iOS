@@ -37,6 +37,7 @@ private struct NewAction: Encodable {
     let project_id: UUID
     let domain: String
     let title: String
+    let status: String?
     let assessment_id: UUID?
     let insight_id: UUID?
     let plan_action_id: UUID?
@@ -79,6 +80,7 @@ class ActionStore {
         projectId: UUID,
         domain: String,
         title: String,
+        status: String? = nil,
         assessmentId: UUID?,
         insightId: UUID? = nil,
         planActionId: UUID? = nil,
@@ -90,6 +92,7 @@ class ActionStore {
                 project_id: projectId,
                 domain: domain,
                 title: title,
+                status: status,
                 assessment_id: assessmentId,
                 insight_id: insightId,
                 plan_action_id: planActionId,
