@@ -17,6 +17,10 @@ struct AssessmentListView: View {
     @State private var isCreating = false
     @State private var createError: String? = nil
     @State private var answeredCounts: [UUID: Int] = [:]
+    /// Assessments that have at least one insights row — drives the
+    /// "Insikter" chip. Plan presence needs no extra state: it rides along
+    /// on assessments.plan, already loaded with the list.
+    @State private var insightAssessmentIds: Set<UUID> = []
 
     var body: some View {
         ZStack {
@@ -31,6 +35,7 @@ struct AssessmentListView: View {
                     Task {
                         await assessmentStore.fetch(projectId: project.id)
                         await fetchAnsweredCounts()
+                        await fetchInsightIds()
                     }
                 }
             } else if assessmentStore.assessments.isEmpty {
@@ -45,6 +50,7 @@ struct AssessmentListView: View {
         .task {
             await assessmentStore.fetch(projectId: project.id)
             await fetchAnsweredCounts()
+            await fetchInsightIds()
         }
     }
 
@@ -116,6 +122,7 @@ struct AssessmentListView: View {
         .refreshable {
             await assessmentStore.fetch(projectId: project.id)
             await fetchAnsweredCounts()
+            await fetchInsightIds()
         }
     }
 
@@ -146,26 +153,22 @@ struct AssessmentListView: View {
                         Text(assessment.createdAt.formatted(date: .abbreviated, time: .omitted))
                             .font(.caption)
                             .foregroundStyle(.apTextSecondary)
-                        if !completed {
+                        if completed {
+                            // Chips only once completed — before that neither
+                            // insights nor plan can be generated, and the
+                            // progress line below carries the row's state.
+                            HStack(spacing: 6) {
+                                generationChip("Insikter", generated: insightAssessmentIds.contains(assessment.id))
+                                generationChip("Plan", generated: assessment.plan != nil)
+                            }
+                            .padding(.top, 2)
+                        } else {
                             Text("\(answeredCounts[assessment.id] ?? 0)/\(questionStore.questions.count)")
                                 .font(.caption)
                                 .foregroundStyle(.apTextTertiary)
                         }
                     }
                     Spacer()
-                    if completed {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.subheadline)
-                            .foregroundStyle(.apStrong)
-                    }
-                    ZStack {
-                        Circle()
-                            .fill(Color.apOrange)
-                            .frame(width: 36, height: 36)
-                        Text("\(assessment.version)")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.white)
-                    }
                 }
             }
         }
@@ -173,6 +176,29 @@ struct AssessmentListView: View {
         .simultaneousGesture(TapGesture().onEnded {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         })
+    }
+
+    /// Generated → green check-chip; not yet → dim outline, deliberately
+    /// neutral ("not yet", not a warning).
+    private func generationChip(_ label: String, generated: Bool) -> some View {
+        HStack(spacing: 4) {
+            if generated {
+                Image(systemName: "checkmark")
+                    .font(.caption2.weight(.bold))
+            }
+            Text(label)
+                .font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(generated ? Color.apStrong : Color.apTextTertiary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(generated ? Color.apStrong.opacity(0.15) : Color.clear))
+        .overlay(
+            Capsule().strokeBorder(
+                generated ? Color.apStrong.opacity(0.4) : Color.apHairline,
+                lineWidth: 0.5
+            )
+        )
     }
 
     private func isComplete(_ assessment: Assessment) -> Bool {
@@ -197,6 +223,30 @@ struct AssessmentListView: View {
             answeredCounts = counts
         } catch {
             print("AssessmentListView: fetchAnsweredCounts error: \(error)")
+        }
+    }
+
+    /// One batched existence query for the whole list (no N+1): which
+    /// assessments have at least one insights row.
+    private func fetchInsightIds() async {
+        let ids = assessmentStore.assessments.map { $0.id.uuidString }
+        guard !ids.isEmpty else { return }
+        struct InsightRef: Decodable {
+            let assessmentId: UUID
+            enum CodingKeys: String, CodingKey {
+                case assessmentId = "assessment_id"
+            }
+        }
+        do {
+            let rows: [InsightRef] = try await supabase
+                .from("insights")
+                .select("assessment_id")
+                .in("assessment_id", values: ids)
+                .execute()
+                .value
+            insightAssessmentIds = Set(rows.map(\.assessmentId))
+        } catch {
+            print("AssessmentListView: fetchInsightIds error: \(error)")
         }
     }
 
