@@ -50,6 +50,8 @@ struct DocumentView: View {
     // Search & delete
     @State private var searchText = ""
     @State private var pendingDelete: DeleteIntent? = nil
+    /// The action row whose "Klar" swipe affordance is revealed, if any.
+    @State private var openSwipeActionId: UUID? = nil
 
     // MARK: Filtered
 
@@ -342,6 +344,9 @@ struct DocumentView: View {
             } label: {
                 Label("Radera", systemImage: "trash")
             }
+        }
+        .swipeToComplete(id: action.id, enabled: !action.isDone, openId: $openSwipeActionId) {
+            Task { await actionStore.toggle(action) }
         }
     }
 

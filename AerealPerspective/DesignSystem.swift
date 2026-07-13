@@ -401,3 +401,129 @@ extension View {
         modifier(MinTapTargetModifier(minSize: size))
     }
 }
+
+// MARK: - Swipe to Complete
+
+/// Custom leading swipe-to-complete for task rows in a ScrollView (no List,
+/// so native .swipeActions is unavailable). Right-swipe reveals a green
+/// "Klar" affordance with rubber-band resistance; release past the commit
+/// threshold or a tap on it fires onComplete with a light haptic. Mirrors
+/// OvrigtView's swipe-to-delete geometry, flipped to the leading edge.
+/// `enabled: false` (already-done rows) keeps the row inert — completing is
+/// the accelerator; un-completing stays on the circle tap. Parent-owned
+/// openId keeps at most one row revealed per list.
+struct SwipeToCompleteModifier: ViewModifier {
+    let id: UUID
+    let enabled: Bool
+    @Binding var openId: UUID?
+    let onComplete: () -> Void
+
+    /// Live finger translation; 0 when no drag is in flight.
+    @State private var dragTranslation: CGFloat = 0
+    /// Latched on the first onChanged of each gesture: true = horizontal
+    /// (track it), false = vertical (ignore — the ScrollView owns it).
+    @State private var isHorizontalDrag: Bool? = nil
+
+    private static let revealWidth: CGFloat = 72
+    private static let openThreshold: CGFloat = 36
+    private static let commitThreshold: CGFloat = 120
+    private static let snapSpring: Animation = .spring(response: 0.3, dampingFraction: 0.7)
+
+    private var isOpen: Bool { openId == id }
+
+    /// Base position plus finger translation, clamped left at 0 and
+    /// rubber-banded (excess ÷ 3) past the reveal width.
+    private var currentOffset: CGFloat {
+        let base: CGFloat = isOpen ? Self.revealWidth : 0
+        var offset = base + dragTranslation
+        if offset < 0 { offset = 0 }
+        if offset > Self.revealWidth {
+            offset = Self.revealWidth + (offset - Self.revealWidth) / 3
+        }
+        return offset
+    }
+
+    func body(content: Content) -> some View {
+        ZStack(alignment: .leading) {
+            Button {
+                commit()
+            } label: {
+                Text("Klar")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: Self.revealWidth)
+                    .frame(maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.apStrong))
+            }
+            .buttonStyle(.plain)
+            .allowsHitTesting(isOpen)
+            // Rows can be translucent, so occlusion can't hide the green:
+            // mask it to the strip the row has vacated — invisible at rest,
+            // revealed exactly where the row slid away.
+            .mask(alignment: .leading) {
+                Rectangle()
+                    .frame(width: max(0, currentOffset))
+            }
+
+            content
+                .overlay {
+                    // Only while revealed: first tap snaps closed instead of
+                    // triggering the row's own controls. Applied BEFORE
+                    // .offset so it translates with the row.
+                    if isOpen {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(Self.snapSpring) { openId = nil }
+                            }
+                    }
+                }
+                .offset(x: currentOffset)
+                .gesture(drag)
+        }
+        .clipped()
+        .animation(Self.snapSpring, value: openId)
+    }
+
+    private func commit() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(Self.snapSpring) { openId = nil }
+        onComplete()
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                if isHorizontalDrag == nil {
+                    isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                }
+                guard isHorizontalDrag == true, enabled else { return }
+                dragTranslation = value.translation.width
+            }
+            .onEnded { _ in
+                defer { isHorizontalDrag = nil }
+                guard isHorizontalDrag == true, enabled else { return }
+                let released = currentOffset
+                if released > Self.commitThreshold {
+                    withAnimation(Self.snapSpring) { dragTranslation = 0 }
+                    commit()
+                } else {
+                    withAnimation(Self.snapSpring) {
+                        dragTranslation = 0
+                        openId = released > Self.openThreshold ? id : nil
+                    }
+                }
+            }
+    }
+}
+
+extension View {
+    func swipeToComplete(
+        id: UUID,
+        enabled: Bool = true,
+        openId: Binding<UUID?>,
+        onComplete: @escaping () -> Void
+    ) -> some View {
+        modifier(SwipeToCompleteModifier(id: id, enabled: enabled, openId: openId, onComplete: onComplete))
+    }
+}

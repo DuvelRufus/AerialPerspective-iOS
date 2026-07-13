@@ -45,6 +45,8 @@ struct PlanView: View {
 
     // Row state
     @State private var expandedItems: Set<UUID> = []
+    /// The plan item whose "Klar" swipe affordance is revealed, if any.
+    @State private var openSwipeId: UUID? = nil
     /// Plan item ids whose done-marked action is being inserted — renders as
     /// done before the row lands in actionStore.actions.
     @State private var pendingPlanIds: Set<UUID> = []
@@ -204,6 +206,21 @@ struct PlanView: View {
 
     @ViewBuilder
     private func itemRow(_ item: PlanItem) -> some View {
+        if let id = item.id {
+            // Swipe-commit routes through the same handler as the circle tap:
+            // insert-as-done for unlinked rows, toggle for open ones. Done
+            // (and pending) rows are inert — un-completing stays on the tap.
+            rowContent(item)
+                .swipeToComplete(id: id, enabled: !isDone(item), openId: $openSwipeId) {
+                    handleCircleTap(item)
+                }
+        } else {
+            rowContent(item)
+        }
+    }
+
+    @ViewBuilder
+    private func rowContent(_ item: PlanItem) -> some View {
         let done = isDone(item)
         let expanded = item.id.map { expandedItems.contains($0) } ?? false
 
