@@ -254,45 +254,31 @@ struct PlanView: View {
             statusIcon(item)
                 .font(.title3)
                 .contentTransition(.symbolEffect(.replace))
-                .animation(.spring(response: 0.35, dampingFraction: 0.75), value: status(item))
+                .animation(.spring(response: 0.35, dampingFraction: 0.75), value: isDone(item))
         }
         .buttonStyle(.plain)
         .haptic(.light)
         .minTapTarget()
     }
 
+    /// Binary: green check when done, otherwise the empty circle — an "open"
+    /// linked action draws identically to a row with no linked action yet.
     @ViewBuilder
     private func statusIcon(_ item: PlanItem) -> some View {
-        switch status(item) {
-        case .notStarted:
-            Image(systemName: "circle")
-                .foregroundStyle(.apTextTertiary)
-        case .inProgress:
-            Image(systemName: "smallcircle.filled.circle")
-                .foregroundStyle(.apOrange)
-        case .done:
+        if isDone(item) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.apStrong)
+        } else {
+            Image(systemName: "circle")
+                .foregroundStyle(.apTextTertiary)
         }
     }
 
     // MARK: - Status
 
-    private enum ItemStatus { case notStarted, inProgress, done }
-
     private func linkedAction(_ item: PlanItem) -> ProjectAction? {
         guard let id = item.id else { return nil }
         return actionStore.action(forPlanItem: id)
-    }
-
-    private func status(_ item: PlanItem) -> ItemStatus {
-        if let action = linkedAction(item) {
-            return action.isDone ? .done : .inProgress
-        }
-        if let id = item.id, pendingPlanIds.contains(id) {
-            return .done
-        }
-        return .notStarted
     }
 
     private func isDone(_ item: PlanItem) -> Bool {
@@ -313,14 +299,12 @@ struct PlanView: View {
 
     private func handleCircleTap(_ item: PlanItem) {
         guard let id = item.id else { return }
-        switch status(item) {
-        case .notStarted:
-            createLinkedAction(item, id: id)
-        case .inProgress, .done:
-            // Un-toggling done goes back to "open" (orange), never deletes —
-            // the linked Åtgärd row must survive.
-            guard let action = linkedAction(item) else { return }
+        if let action = linkedAction(item) {
+            // Un-toggling done goes back to "open" (draws as the empty
+            // circle), never deletes — the linked Åtgärd row must survive.
             Task { await actionStore.toggle(action) }
+        } else if !pendingPlanIds.contains(id) {
+            createLinkedAction(item, id: id)
         }
     }
 

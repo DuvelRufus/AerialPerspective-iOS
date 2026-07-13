@@ -70,8 +70,8 @@ class ActionStore {
     }
 
     /// The action created from a given plan item, if any. Computed over the
-    /// already-loaded `actions` — does not fetch. Plan derives item status:
-    /// nil = not started, non-nil & !isDone = in progress, isDone = done.
+    /// already-loaded `actions` — does not fetch. Plan draws the row done
+    /// when isDone; nil and non-nil-but-open both draw as the empty circle.
     func action(forPlanItem id: UUID) -> ProjectAction? {
         actions.first { $0.planActionId == id }
     }
