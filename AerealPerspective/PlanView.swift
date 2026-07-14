@@ -588,7 +588,11 @@ struct PlanView: View {
                 plan: PlanStore.translate(generated, keyMap: keyMap)
             )
             // Re-load so the source/plan/scores reflect persisted state.
+            // The RPC re-links tasks' plan_action_id to the new plan's rows,
+            // so the shared ActionStore must refetch too — otherwise done
+            // states resolve against stale ids and render as 0/N klara.
             isLoading = true
+            await actionStore.fetch(projectId: project.id)
             await load()
         } catch {
             errorMessage = error.localizedDescription
