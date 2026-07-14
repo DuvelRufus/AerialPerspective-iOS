@@ -33,6 +33,9 @@ struct EdgeFunctionService {
         let questionsWithAnswers: [[String: String]]
         let durationValue: Int?
         let durationUnit: String?
+        // nil (first generation) is omitted from the JSON, keeping the
+        // request identical to the pre-regeneration contract.
+        let currentActions: [CurrentPlanAction]?
     }
 
     // Wrapper matching { "insights": [...] } returned by generate-insights.
@@ -93,7 +96,7 @@ struct EdgeFunctionService {
     // Wrapper matching { "plan": { ... } } returned by generate-plan.
     // Standard decoder preserves day1_30/day31_60/day61_90 keys exactly.
     private struct PlanResponse: Decodable {
-        var plan: PlanResult
+        var plan: GeneratedPlan
     }
 
     static func generatePlan(
@@ -102,13 +105,15 @@ struct EdgeFunctionService {
         questions: [Question],
         options: [AnswerOption],
         durationValue: Int?,
-        durationUnit: String?
-    ) async throws -> PlanResult {
+        durationUnit: String?,
+        currentActions: [CurrentPlanAction]? = nil
+    ) async throws -> GeneratedPlan {
         let payload = PlanPayload(
             scores: scoreDict(from: scores),
             questionsWithAnswers: buildQnA(answers: answers, questions: questions, options: options),
             durationValue: durationValue,
-            durationUnit: durationUnit
+            durationUnit: durationUnit,
+            currentActions: currentActions
         )
 
         let wrapper: PlanResponse
@@ -150,4 +155,38 @@ struct EdgeFunctionService {
             ]
         }
     }
+}
+
+// MARK: - generate-plan regeneration contract
+
+/// One action of the current active plan, sent so the function can anchor
+/// retained actions. Keys are short ("a1", "a2", ...) because the model
+/// echoes those reliably; the key→plan_actions.id map stays client-side.
+struct CurrentPlanAction: Encodable {
+    let key: String
+    let phase: String
+    let text: String
+    let domain: String?
+}
+
+/// The function's response. `ref` echoes a currentActions key on retained
+/// actions; absent on new ones. `domain` is optional in practice — the
+/// model sometimes omits it. Never persisted as-is: translated to the
+/// regenerate_plan RPC payload, where ref becomes prev_id.
+struct GeneratedPlan: Decodable {
+    var summary: String
+    var day1_30: GeneratedPhase
+    var day31_60: GeneratedPhase
+    var day61_90: GeneratedPhase
+}
+
+struct GeneratedPhase: Decodable {
+    var focus: String
+    var actions: [GeneratedAction]
+}
+
+struct GeneratedAction: Decodable {
+    var text: String
+    var domain: String?
+    var ref: String?
 }

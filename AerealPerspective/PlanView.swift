@@ -45,6 +45,10 @@ struct PlanView: View {
 
     // Generate target when no plan exists yet
     @State private var generateTarget: Assessment? = nil
+    /// Newest completed assessment newer than the shown plan's source that
+    /// lacks an active plan — offers first-generation while a plan shows.
+    @State private var newerTarget: Assessment? = nil
+    @State private var showReplaceConfirm = false
 
     // Row state
     @State private var expandedItems: Set<UUID> = []
@@ -113,10 +117,10 @@ struct PlanView: View {
             Text("Ingen plan ännu")
                 .foregroundStyle(.apTextPrimary)
                 .font(.headline)
-            if generateTarget != nil {
+            if let generateTarget {
                 APPillButton(title: "Generera 30-60-90 plan", action: {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    Task { await generate() }
+                    Task { await generate(for: generateTarget, replacingActive: false) }
                 })
                 .padding(.horizontal, 40)
             } else {
@@ -160,6 +164,35 @@ struct PlanView: View {
                         .strokeBorder(Color.apHairline, lineWidth: 0.5)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                // First generation for a newer completed assessment —
+                // nothing is replaced (the shown plan stays active on its
+                // own assessment), so no confirmation.
+                if let newerTarget {
+                    APPillButton(title: "Generera plan för Assessment \(newerTarget.version)", action: {
+                        Task { await generate(for: newerTarget, replacingActive: false) }
+                    })
+                    .padding(.top, 8)
+                }
+
+                // Regeneration replaces the shown active plan — confirmed.
+                if let source = sourceAssessment {
+                    APPillButton(title: "Generera ny plan", action: {
+                        showReplaceConfirm = true
+                    }, style: .secondary)
+                    .confirmationDialog(
+                        "Ersätt nuvarande plan?",
+                        isPresented: $showReplaceConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Ersätt", role: .destructive) {
+                            Task { await generate(for: source, replacingActive: true) }
+                        }
+                        Button("Avbryt", role: .cancel) {}
+                    } message: {
+                        Text("Nuvarande plan arkiveras. Avbockade åtgärder som känns igen följer med till den nya planen.")
+                    }
+                }
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -456,6 +489,7 @@ struct PlanView: View {
             sourceAssessment = source
             items = makeItems(from: planStore.actions)
             generateTarget = nil
+            newerTarget = await newerGenerateTarget(in: byNewest, than: source)
             await loadScores(for: source)
         } else if let source = byNewest.first(where: { $0.plan != nil }),
                   let legacy = source.plan {
@@ -465,11 +499,13 @@ struct PlanView: View {
             sourceAssessment = source
             items = makeItems(fromLegacy: legacy)
             generateTarget = nil
+            newerTarget = await newerGenerateTarget(in: byNewest, than: source)
             await loadScores(for: source)
         } else {
             // No plan anywhere: offer to generate for the latest completed one.
             sourceAssessment = nil
             items = []
+            newerTarget = nil
             generateTarget = await latestCompleted(in: byNewest)
             if let target = generateTarget {
                 await loadScores(for: target)
@@ -477,6 +513,15 @@ struct PlanView: View {
         }
 
         isLoading = false
+    }
+
+    /// The newest completed assessment newer than `source` without an
+    /// active plan — the per-assessment first-generation target.
+    private func newerGenerateTarget(in byNewest: [Assessment], than source: Assessment) async -> Assessment? {
+        let candidates = byNewest.filter {
+            $0.version > source.version && !planStore.activeAssessmentIds.contains($0.id)
+        }
+        return await latestCompleted(in: candidates)
     }
 
     /// Loads answers for `assessment` and computes its domain scores. The
@@ -504,27 +549,44 @@ struct PlanView: View {
         return nil
     }
 
-    // MARK: - Generate
+    // MARK: - Generate / regenerate
 
-    private func generate() async {
-        guard let target = generateTarget else { return }
+    /// Both paths: edge function → ref→prev_id translation → regenerate_plan
+    /// RPC → reload rows. No JSONB writes. `replacingActive` sends the shown
+    /// active plan's actions as anchors so the RPC can re-link tasks;
+    /// first generation sends none.
+    private func generate(for target: Assessment, replacingActive: Bool) async {
         errorMessage = nil
         isGenerating = true
         defer { isGenerating = false }
         do {
-            let result = try await EdgeFunctionService.generatePlan(
+            // The Q&A payload must belong to the target assessment — it may
+            // differ from whichever assessment load() last scored.
+            await loadScores(for: target)
+
+            var currentActions: [CurrentPlanAction]? = nil
+            var keyMap: [String: UUID] = [:]
+            if replacingActive, planStore.activePlan?.assessmentId == target.id {
+                let built = buildCurrentActions(from: planStore.actions)
+                if !built.payload.isEmpty {
+                    currentActions = built.payload
+                    keyMap = built.keyMap
+                }
+            }
+
+            let generated = try await EdgeFunctionService.generatePlan(
                 scores: domainScores,
                 answers: answerStore.answers,
                 questions: questionStore.questions,
                 options: questionStore.options,
                 durationValue: project.durationValue,
-                durationUnit: project.durationUnit?.rawValue
+                durationUnit: project.durationUnit?.rawValue,
+                currentActions: currentActions
             )
-            try await supabase
-                .from("assessments")
-                .update(AssessmentPlanUpdate(plan: result))
-                .eq("id", value: target.id)
-                .execute()
+            try await planStore.regenerate(
+                assessmentId: target.id,
+                plan: PlanStore.translate(generated, keyMap: keyMap)
+            )
             // Re-load so the source/plan/scores reflect persisted state.
             isLoading = true
             await load()
@@ -533,8 +595,23 @@ struct PlanView: View {
             print("PlanView: generate error: \(error)")
         }
     }
-}
 
-private struct AssessmentPlanUpdate: Encodable {
-    let plan: PlanResult
+    /// currentActions in the same phase/sort order the list renders, keyed
+    /// "a1", "a2", ... with the key→row-id map kept for translation.
+    private func buildCurrentActions(from rows: [PlanActionRow]) -> (payload: [CurrentPlanAction], keyMap: [String: UUID]) {
+        let ordered = rows.sorted { a, b in
+            let ai = Self.phaseIndex(a.phase)
+            let bi = Self.phaseIndex(b.phase)
+            if ai != bi { return ai < bi }
+            return a.sortOrder < b.sortOrder
+        }
+        var payload: [CurrentPlanAction] = []
+        var keyMap: [String: UUID] = [:]
+        for (index, row) in ordered.enumerated() {
+            let key = "a\(index + 1)"
+            keyMap[key] = row.id
+            payload.append(CurrentPlanAction(key: key, phase: row.phase, text: row.text, domain: row.domain))
+        }
+        return (payload, keyMap)
+    }
 }
