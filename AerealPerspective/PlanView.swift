@@ -19,14 +19,6 @@ private struct PlanItem: Identifiable {
     let phaseIndex: Int      // 0 = 1–30, 1 = 31–60, 2 = 61–90
     let phaseLabel: String   // "Dag 1–30"
     let order: Int           // original flat index, for stable sorting
-
-    /// First sentence of the text, split on the first ". ".
-    var shortText: String {
-        if let range = text.range(of: ". ") {
-            return String(text[..<range.lowerBound]) + "."
-        }
-        return text
-    }
 }
 
 struct PlanView: View {
@@ -46,7 +38,6 @@ struct PlanView: View {
     @State private var showReplaceConfirm = false
 
     // Row state
-    @State private var expandedItems: Set<UUID> = []
     /// The plan item whose swipe actions are revealed, if any.
     @State private var openSwipeId: UUID? = nil
     /// Plan item ids whose done-marked action is being inserted — renders as
@@ -238,40 +229,23 @@ struct PlanView: View {
     @ViewBuilder
     private func rowContent(_ item: PlanItem) -> some View {
         let done = isDone(item)
-        let expanded = expandedItems.contains(item.id)
 
+        // Full text always — no expand/collapse: the tap-and-chevron
+        // interaction raced the swipe gesture for the same drag.
         HStack(alignment: .top, spacing: 12) {
             statusCircle(item)
 
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    if expandedItems.contains(item.id) {
-                        expandedItems.remove(item.id)
-                    } else {
-                        expandedItems.insert(item.id)
-                    }
-                }
-            } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(expanded ? item.text : item.shortText)
-                        .font(.subheadline)
-                        .strikethrough(done)
-                        .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
-                        .multilineTextAlignment(.leading)
-                    Text(metadataLine(item))
-                        .font(.caption)
-                        .foregroundStyle(.apTextTertiary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.text)
+                    .font(.subheadline)
+                    .strikethrough(done)
+                    .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
+                    .multilineTextAlignment(.leading)
+                Text(metadataLine(item))
+                    .font(.caption)
+                    .foregroundStyle(.apTextTertiary)
             }
-            .buttonStyle(.plain)
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.apTextTertiary)
-                .rotationEffect(.degrees(expanded ? 90 : 0))
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
