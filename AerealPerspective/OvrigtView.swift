@@ -683,7 +683,15 @@ private struct SwipeToDeleteModifier: ViewModifier {
         DragGesture(minimumDistance: 20)
             .onChanged { value in
                 if isHorizontalDrag == nil {
-                    isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                    // Latch once per touch: claim only drags that are
+                    // decisively horizontal AND in the reveal direction
+                    // (leftward) — a wrong-direction or diagonal drag is
+                    // never consumed, so scrolling and the system back-swipe
+                    // keep working. While the row is revealed, the closing
+                    // (rightward) drag is legitimate and accepted too.
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    isHorizontalDrag = abs(dx) > abs(dy) * 1.5 && (dx < 0 || isOpen)
                 }
                 guard isHorizontalDrag == true else { return }
                 dragTranslation = value.translation.width
