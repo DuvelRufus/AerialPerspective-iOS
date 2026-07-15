@@ -19,11 +19,10 @@ struct InsightsView: View {
 
     @State private var insightStore = InsightStore()
     @State private var actionStore = ActionStore()
-    @State private var isGenerating = false
     @State private var errorMessage: String? = nil
     @State private var insightForAction: Insight? = nil
     // Storen kan inte skilja "aldrig hämtat" från "hämtat, tomt" — båda är
-    // isLoading == false, error == nil, insights == []. Generera-knappen får
+    // isLoading == false, error == nil, insights == []. Tomma läget får
     // bara visas efter en genomförd hämtning.
     @State private var hasFetched = false
     // Driver för den staggrade intåget av insiktskorten.
@@ -51,19 +50,17 @@ struct InsightsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if isGenerating {
-            APGeneratingState(phrases: Self.generationPhrases)
-        } else if insightStore.isLoading {
+        if insightStore.isLoading {
             loadingState
         } else if insightStore.error != nil {
-            // Misslyckad hämtning: tom array är tvetydig här, så generera-
-            // knappen får aldrig visas — en tap skulle skapa dubblettrader.
             APErrorState {
                 Task { await insightStore.fetch(assessmentId: assessment.id) }
             }
         } else if !hasFetched && insightStore.insights.isEmpty {
             loadingState
         } else if insightStore.insights.isEmpty {
+            // Generering sker automatiskt när en assessment slutförs
+            // (ResultView) — ingen manuell trigger här längre.
             VStack(spacing: 20) {
                 Image(systemName: "lightbulb")
                     .font(.system(size: 48))
@@ -71,15 +68,12 @@ struct InsightsView: View {
                 Text("Inga insikter ännu")
                     .foregroundStyle(.apTextPrimary)
                     .font(.headline)
-                generateButton("Generera insikter")
-                if let msg = errorMessage {
-                    Text(msg)
-                        .font(.caption)
-                        .foregroundStyle(.apRisk)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
+                Text("Insikter skapas automatiskt när en assessment slutförs.")
+                    .font(.subheadline)
+                    .foregroundStyle(.apTextSecondary)
+                    .multilineTextAlignment(.center)
             }
+            .padding(.horizontal, 32)
         } else {
             ScrollView {
                 VStack(spacing: 12) {
@@ -104,10 +98,6 @@ struct InsightsView: View {
             .onAppear { cardsRevealed = true }
         }
     }
-
-    /// Cycled by APGeneratingState while the edge function runs.
-    private static let generationPhrases: [String] =
-        Domain.allCases.map { "Analyserar \($0.rawValue)..." } + ["Sammanställer insikter..."]
 
     private var loadingState: some View {
         VStack(spacing: 16) {
@@ -158,37 +148,6 @@ struct InsightsView: View {
                 .strokeBorder(Color.apHairline, lineWidth: 0.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func generateButton(_ label: String, style: APPillButtonStyle = .primary) -> some View {
-        APPillButton(title: label, action: {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            Task { await generate() }
-        }, style: style, isLoading: isGenerating)
-    }
-
-    private func generate() async {
-        guard !isGenerating else { return }
-        print("InsightsView: generate() start – assessment \(assessment.id)")
-        errorMessage = nil
-        isGenerating = true
-        defer {
-            isGenerating = false
-            print("InsightsView: generate() end")
-        }
-        do {
-            let generated = try await EdgeFunctionService.generateInsights(
-                scores: domainScores,
-                answers: answerStore.answers,
-                questions: questionStore.questions,
-                options: questionStore.options
-            )
-            print("InsightsView: received \(generated.count) insights")
-            try await insightStore.save(generated, for: assessment.id)
-        } catch {
-            errorMessage = error.localizedDescription
-            print("InsightsView: generate error: \(error)")
-        }
     }
 
     private func createAction(title: String, domain: Domain, insightId: UUID?) async {

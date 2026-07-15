@@ -43,11 +43,6 @@ struct PlanView: View {
     @State private var domainScores: [DomainScore] = []
     @State private var answerStore = AnswerStore()
 
-    // Generate target when no plan exists yet
-    @State private var generateTarget: Assessment? = nil
-    /// Newest completed assessment newer than the shown plan's source that
-    /// lacks an active plan — offers first-generation while a plan shows.
-    @State private var newerTarget: Assessment? = nil
     @State private var showReplaceConfirm = false
 
     // Row state
@@ -117,17 +112,12 @@ struct PlanView: View {
             Text("Ingen plan ännu")
                 .foregroundStyle(.apTextPrimary)
                 .font(.headline)
-            if let generateTarget {
-                APPillButton(title: "Generera 30-60-90 plan", action: {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    Task { await generate(for: generateTarget, replacingActive: false) }
-                })
-                .padding(.horizontal, 40)
-            } else {
-                Text("Kör en assessment först")
-                    .font(.subheadline)
-                    .foregroundStyle(.apTextSecondary)
-            }
+            // Första planen genereras automatiskt när en assessment
+            // slutförs (ResultView) — ingen manuell trigger här.
+            Text("Slutför en assessment så skapas planen automatiskt.")
+                .font(.subheadline)
+                .foregroundStyle(.apTextSecondary)
+                .multilineTextAlignment(.center)
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
@@ -165,17 +155,8 @@ struct PlanView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                // First generation for a newer completed assessment —
-                // nothing is replaced (the shown plan stays active on its
-                // own assessment), so no confirmation.
-                if let newerTarget {
-                    APPillButton(title: "Generera plan för Assessment \(newerTarget.version)", action: {
-                        Task { await generate(for: newerTarget, replacingActive: false) }
-                    })
-                    .padding(.top, 8)
-                }
-
                 // Regeneration replaces the shown active plan — confirmed.
+                // (First generation is automatic on assessment completion.)
                 if let source = sourceAssessment {
                     APPillButton(title: "Generera ny plan", action: {
                         showReplaceConfirm = true
@@ -488,8 +469,6 @@ struct PlanView: View {
            let source = byNewest.first(where: { $0.id == activePlan.assessmentId }) {
             sourceAssessment = source
             items = makeItems(from: planStore.actions)
-            generateTarget = nil
-            newerTarget = await newerGenerateTarget(in: byNewest, than: source)
             await loadScores(for: source)
         } else if let source = byNewest.first(where: { $0.plan != nil }),
                   let legacy = source.plan {
@@ -498,30 +477,15 @@ struct PlanView: View {
             // move to rows). Display parity only.
             sourceAssessment = source
             items = makeItems(fromLegacy: legacy)
-            generateTarget = nil
-            newerTarget = await newerGenerateTarget(in: byNewest, than: source)
             await loadScores(for: source)
         } else {
-            // No plan anywhere: offer to generate for the latest completed one.
+            // No plan anywhere: first generation happens automatically when
+            // an assessment is completed (ResultView), never from here.
             sourceAssessment = nil
             items = []
-            newerTarget = nil
-            generateTarget = await latestCompleted(in: byNewest)
-            if let target = generateTarget {
-                await loadScores(for: target)
-            }
         }
 
         isLoading = false
-    }
-
-    /// The newest completed assessment newer than `source` without an
-    /// active plan — the per-assessment first-generation target.
-    private func newerGenerateTarget(in byNewest: [Assessment], than source: Assessment) async -> Assessment? {
-        let candidates = byNewest.filter {
-            $0.version > source.version && !planStore.activeAssessmentIds.contains($0.id)
-        }
-        return await latestCompleted(in: candidates)
     }
 
     /// Loads answers for `assessment` and computes its domain scores. The
@@ -535,21 +499,7 @@ struct PlanView: View {
         )
     }
 
-    /// The newest assessment with all questions answered, scanning newest-first.
-    private func latestCompleted(in byNewest: [Assessment]) async -> Assessment? {
-        let total = questionStore.questions.count
-        guard total > 0 else { return nil }
-        for assessment in byNewest {
-            let store = AnswerStore()
-            await store.fetch(assessmentId: assessment.id)
-            if store.answers.count >= total {
-                return assessment
-            }
-        }
-        return nil
-    }
-
-    // MARK: - Generate / regenerate
+    // MARK: - Regenerate
 
     /// Both paths: edge function → ref→prev_id translation → regenerate_plan
     /// RPC → reload rows. No JSONB writes. `replacingActive` sends the shown
