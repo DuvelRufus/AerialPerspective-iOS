@@ -8,12 +8,22 @@
 import Foundation
 import Supabase
 
+/// The actions.state column. `open`/`done` drive today's UI; `prio` and
+/// `waiting` get affordances in a later change.
+enum TaskState: String {
+    case open, prio, waiting, done
+}
+
 struct ProjectAction: Identifiable, Codable {
     let id: UUID
     var projectId: UUID
     var domain: String
     var title: String
+    /// Legacy open/done column — kept in sync on every write until the R5
+    /// cleanup; nothing in the app derives from it anymore.
     var status: String
+    /// Source of truth. Plain String at the DB boundary; use taskState.
+    var state: String
     var assessmentId: UUID?
     var insightId: UUID?
     var planActionId: UUID?
@@ -21,7 +31,7 @@ struct ProjectAction: Identifiable, Codable {
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case id, domain, title, status
+        case id, domain, title, status, state
         case projectId = "project_id"
         case assessmentId = "assessment_id"
         case insightId = "insight_id"
@@ -30,7 +40,10 @@ struct ProjectAction: Identifiable, Codable {
         case createdAt = "created_at"
     }
 
-    var isDone: Bool { status == "done" }
+    /// Unknown DB values degrade to .open instead of failing decode.
+    var taskState: TaskState { TaskState(rawValue: state) ?? .open }
+
+    var isDone: Bool { taskState == .done }
 }
 
 private struct NewAction: Encodable {
@@ -38,14 +51,18 @@ private struct NewAction: Encodable {
     let domain: String
     let title: String
     let status: String?
+    let state: String?
     let assessment_id: UUID?
     let insight_id: UUID?
     let plan_action_id: UUID?
     let created_from_score: Int?
 }
 
-private struct StatusUpdate: Encodable {
+/// Dual-write during the status→state transition: both columns get the
+/// same open/done value so the legacy column stays valid until R5.
+private struct StateUpdate: Encodable {
     let status: String
+    let state: String
 }
 
 @MainActor
@@ -93,6 +110,9 @@ class ActionStore {
                 domain: domain,
                 title: title,
                 status: status,
+                // Mirror status so insert-as-done lands done in BOTH columns;
+                // nil leaves both on the matching 'open' server defaults.
+                state: status,
                 assessment_id: assessmentId,
                 insight_id: insightId,
                 plan_action_id: planActionId,
@@ -106,17 +126,21 @@ class ActionStore {
     }
 
     func toggle(_ action: ProjectAction) async {
-        let newStatus = action.status == "open" ? "done" : "open"
+        // state is the source of truth; un-toggling done lands on "open"
+        // regardless of any earlier prio/waiting (revisit with the R4 UI).
+        let newValue = action.isDone ? "open" : "done"
         guard let index = actions.firstIndex(where: { $0.id == action.id }) else { return }
-        actions[index].status = newStatus
+        actions[index].state = newValue
+        actions[index].status = newValue
         do {
             try await supabase
                 .from("actions")
-                .update(StatusUpdate(status: newStatus))
+                .update(StateUpdate(status: newValue, state: newValue))
                 .eq("id", value: action.id)
                 .execute()
         } catch {
             if let index = actions.firstIndex(where: { $0.id == action.id }) {
+                actions[index].state = action.state
                 actions[index].status = action.status
             }
             print("ActionStore toggle error: \(error)")
