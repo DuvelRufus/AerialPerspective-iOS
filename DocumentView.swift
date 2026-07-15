@@ -50,7 +50,7 @@ struct DocumentView: View {
     // Search & delete
     @State private var searchText = ""
     @State private var pendingDelete: DeleteIntent? = nil
-    /// The action row whose "Klar" swipe affordance is revealed, if any.
+    /// The action row whose swipe actions are revealed, if any.
     @State private var openSwipeActionId: UUID? = nil
 
     // MARK: Filtered
@@ -345,9 +345,16 @@ struct DocumentView: View {
                 Label("Radera", systemImage: "trash")
             }
         }
-        .swipeToComplete(id: action.id, enabled: !action.isDone, openId: $openSwipeActionId) {
-            Task { await actionStore.toggle(action) }
-        }
+        // R4a: Vänta/Ta bort are visual stubs — real behavior lands in R4b.
+        // Klar stays on the circle tap.
+        .apSwipeActions(id: action.id, openId: $openSwipeActionId, actions: [
+            APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
+                print("DocumentView: Vänta stub – \(action.id)")
+            },
+            APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
+                print("DocumentView: Ta bort stub – \(action.id)")
+            }
+        ])
     }
 
     private func levelColor(_ level: ScoreLevel?) -> Color {

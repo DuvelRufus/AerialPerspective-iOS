@@ -47,7 +47,7 @@ struct PlanView: View {
 
     // Row state
     @State private var expandedItems: Set<UUID> = []
-    /// The plan item whose "Klar" swipe affordance is revealed, if any.
+    /// The plan item whose swipe actions are revealed, if any.
     @State private var openSwipeId: UUID? = nil
     /// Plan item ids whose done-marked action is being inserted — renders as
     /// done before the row lands in actionStore.actions.
@@ -222,13 +222,17 @@ struct PlanView: View {
     }
 
     private func itemRow(_ item: PlanItem) -> some View {
-        // Swipe-commit routes through the same handler as the circle tap:
-        // insert-as-done for unlinked rows, toggle for open ones. Done
-        // (and pending) rows are inert — un-completing stays on the tap.
+        // R4a: Vänta/Ta bort are visual stubs — real behavior lands in R4b.
+        // Klar stays on the circle tap.
         rowContent(item)
-            .swipeToComplete(id: item.id, enabled: !isDone(item), openId: $openSwipeId) {
-                handleCircleTap(item)
-            }
+            .apSwipeActions(id: item.id, openId: $openSwipeId, actions: [
+                APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
+                    print("PlanView: Vänta stub – \(item.id)")
+                },
+                APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
+                    print("PlanView: Ta bort stub – \(item.id)")
+                }
+            ])
     }
 
     @ViewBuilder

@@ -31,6 +31,7 @@ extension Color {
     static let apRisk             = Color(hex: "#EF4444")
     static let apNote             = Color(hex: "#F59E0B")
     static let apStrong           = Color(hex: "#22C55E")
+    static let apWaiting          = Color(hex: "#3B82F6")
 
     // Borders & dividers
     static let apHairline         = Color.white.opacity(0.08)
@@ -64,6 +65,7 @@ extension ShapeStyle where Self == Color {
     static var apRisk:            Color { Color.apRisk }
     static var apNote:            Color { Color.apNote }
     static var apStrong:          Color { Color.apStrong }
+    static var apWaiting:         Color { Color.apWaiting }
     static var apHairline:        Color { Color.apHairline }
 }
 
@@ -528,67 +530,77 @@ extension View {
     }
 }
 
-// MARK: - Swipe to Complete
+// MARK: - Swipe Actions
 
-/// Custom leading swipe-to-complete for task rows in a ScrollView (no List,
-/// so native .swipeActions is unavailable). Right-swipe reveals a green
-/// "Klar" affordance with rubber-band resistance; release past the commit
-/// threshold or a tap on it fires onComplete with a light haptic. Mirrors
-/// OvrigtView's swipe-to-delete geometry, flipped to the leading edge.
-/// `enabled: false` (already-done rows) keeps the row inert — completing is
-/// the accelerator; un-completing stays on the circle tap. Parent-owned
-/// openId keeps at most one row revealed per list.
-struct SwipeToCompleteModifier: ViewModifier {
+/// One labeled, colored button revealed by apSwipeActions.
+struct APSwipeAction {
+    let title: String
+    let systemImage: String
+    let color: Color
+    let handler: () -> Void
+}
+
+/// Reusable trailing swipe for rows in ScrollViews (no List, so native
+/// .swipeActions is unavailable). Left-swipe reveals one or more labeled,
+/// colored buttons with rubber-band resistance. Release past the open
+/// threshold snaps OPEN — the swipe itself never commits an action, so a
+/// destructive button always costs a deliberate tap. Parent-owned openId
+/// keeps at most one row revealed per list.
+///
+/// The direction latch is deferred and three-state: while undecided it is
+/// re-evaluated every sample (never decided once from the noisy activation
+/// sample); decisively horizontal in the reveal direction latches active,
+/// decisively vertical or wrong-direction latches dead for the touch, so
+/// scrolling and the system back-swipe always fall through untouched.
+struct APSwipeActionsModifier: ViewModifier {
     let id: UUID
     let enabled: Bool
     @Binding var openId: UUID?
-    let onComplete: () -> Void
+    let actions: [APSwipeAction]
 
     /// Live finger translation; 0 when no drag is in flight.
     @State private var dragTranslation: CGFloat = 0
-    /// Latched on the first onChanged of each gesture: true = horizontal
-    /// (track it), false = vertical (ignore — the ScrollView owns it).
-    @State private var isHorizontalDrag: Bool? = nil
+    /// nil = undecided, true = tracking this drag, false = dead this touch.
+    @State private var latch: Bool? = nil
 
-    private static let revealWidth: CGFloat = 72
-    private static let openThreshold: CGFloat = 36
-    private static let commitThreshold: CGFloat = 120
+    private static let actionWidth: CGFloat = 72
+    private static let actionSpacing: CGFloat = 4
     private static let snapSpring: Animation = .spring(response: 0.3, dampingFraction: 0.7)
+
+    private var revealWidth: CGFloat {
+        CGFloat(actions.count) * Self.actionWidth
+            + CGFloat(max(0, actions.count - 1)) * Self.actionSpacing
+    }
+    private var openThreshold: CGFloat { revealWidth / 2 }
 
     private var isOpen: Bool { openId == id }
 
-    /// Base position plus finger translation, clamped left at 0 and
+    /// Base position plus finger translation, clamped right at 0 and
     /// rubber-banded (excess ÷ 3) past the reveal width.
     private var currentOffset: CGFloat {
-        let base: CGFloat = isOpen ? Self.revealWidth : 0
+        let base: CGFloat = isOpen ? -revealWidth : 0
         var offset = base + dragTranslation
-        if offset < 0 { offset = 0 }
-        if offset > Self.revealWidth {
-            offset = Self.revealWidth + (offset - Self.revealWidth) / 3
+        if offset > 0 { offset = 0 }
+        if offset < -revealWidth {
+            offset = -revealWidth + (offset + revealWidth) / 3
         }
         return offset
     }
 
     func body(content: Content) -> some View {
-        ZStack(alignment: .leading) {
-            Button {
-                commit()
-            } label: {
-                Text("Klar")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: Self.revealWidth)
-                    .frame(maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.apStrong))
+        ZStack(alignment: .trailing) {
+            HStack(spacing: Self.actionSpacing) {
+                ForEach(actions.indices, id: \.self) { index in
+                    actionButton(actions[index])
+                }
             }
-            .buttonStyle(.plain)
             .allowsHitTesting(isOpen)
-            // Rows can be translucent, so occlusion can't hide the green:
-            // mask it to the strip the row has vacated — invisible at rest,
-            // revealed exactly where the row slid away.
-            .mask(alignment: .leading) {
+            // Rows can be translucent, so occlusion can't hide the buttons:
+            // mask them to the strip the row has vacated — invisible at
+            // rest, revealed exactly where the row slid away.
+            .mask(alignment: .trailing) {
                 Rectangle()
-                    .frame(width: max(0, currentOffset))
+                    .frame(width: max(0, -currentOffset))
             }
 
             content
@@ -611,53 +623,66 @@ struct SwipeToCompleteModifier: ViewModifier {
         .animation(Self.snapSpring, value: openId)
     }
 
-    private func commit() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(Self.snapSpring) { openId = nil }
-        onComplete()
+    private func actionButton(_ action: APSwipeAction) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(Self.snapSpring) { openId = nil }
+            action.handler()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: action.systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(action.title)
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(width: Self.actionWidth)
+            .frame(maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 10).fill(action.color))
+        }
+        .buttonStyle(.plain)
     }
 
     private var drag: some Gesture {
         DragGesture(minimumDistance: 20)
             .onChanged { value in
-                if isHorizontalDrag == nil {
-                    // Latch once per touch: claim only drags that are
-                    // decisively horizontal AND in the reveal direction
-                    // (rightward) — a wrong-direction or diagonal drag is
-                    // never consumed, so scrolling and the system back-swipe
-                    // keep working. While the row is revealed, the closing
-                    // (leftward) drag is legitimate and accepted too.
+                if latch == nil {
                     let dx = value.translation.width
                     let dy = value.translation.height
-                    isHorizontalDrag = abs(dx) > abs(dy) * 1.5 && (dx > 0 || isOpen)
+                    if abs(dx) > abs(dy) * 1.5 {
+                        // Decisively horizontal: claim only the reveal
+                        // direction (leftward; either direction while open,
+                        // so drag-to-close works) — a wrong-direction drag
+                        // dies here and the system back-swipe keeps it.
+                        latch = (dx < 0 || isOpen)
+                    } else if abs(dy) > abs(dx) * 1.5 {
+                        // Decisively vertical: the ScrollView owns it.
+                        latch = false
+                    }
+                    // Ambiguous: stay undecided and re-evaluate next sample.
                 }
-                guard isHorizontalDrag == true, enabled else { return }
+                guard latch == true, enabled else { return }
                 dragTranslation = value.translation.width
             }
             .onEnded { _ in
-                defer { isHorizontalDrag = nil }
-                guard isHorizontalDrag == true, enabled else { return }
+                defer { latch = nil }
+                guard latch == true, enabled else { return }
                 let released = currentOffset
-                if released > Self.commitThreshold {
-                    withAnimation(Self.snapSpring) { dragTranslation = 0 }
-                    commit()
-                } else {
-                    withAnimation(Self.snapSpring) {
-                        dragTranslation = 0
-                        openId = released > Self.openThreshold ? id : nil
-                    }
+                withAnimation(Self.snapSpring) {
+                    dragTranslation = 0
+                    openId = released < -openThreshold ? id : nil
                 }
             }
     }
 }
 
 extension View {
-    func swipeToComplete(
+    func apSwipeActions(
         id: UUID,
         enabled: Bool = true,
         openId: Binding<UUID?>,
-        onComplete: @escaping () -> Void
+        actions: [APSwipeAction]
     ) -> some View {
-        modifier(SwipeToCompleteModifier(id: id, enabled: enabled, openId: openId, onComplete: onComplete))
+        modifier(APSwipeActionsModifier(id: id, enabled: enabled, openId: openId, actions: actions))
     }
 }
