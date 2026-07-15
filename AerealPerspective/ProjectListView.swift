@@ -16,10 +16,13 @@ struct ProjectListView: View {
     @State private var showNewProject = false
     @State private var isCreating = false
     @State private var projectToDelete: Project? = nil
-    @State private var selectedProject: Project? = nil
+    /// Path-based navigation: reconciles cleanly with the system interactive
+    /// back swipe, unlike the item-bound navigationDestination it replaces
+    /// (which desynced mid-pop and left a stuck half-transition).
+    @State private var path: [Project] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack {
                 APAmbientBackground()
 
@@ -39,6 +42,12 @@ struct ProjectListView: View {
             }
             .navigationTitle("Projekt")
             .navigationBarTitleDisplayMode(.large)
+            // On the stable ZStack, never inside the conditional list branch:
+            // the destination must stay mounted across loading/error/empty
+            // states or the navigation state orphans mid-transition.
+            .navigationDestination(for: Project.self) { project in
+                ProjectTabView(project: project, questionStore: questionStore)
+            }
             .preferredColorScheme(.dark)
             .toolbarBackground(Color.apBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -102,7 +111,7 @@ struct ProjectListView: View {
                 // drives both the press effect and the haptic.
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    selectedProject = project
+                    path.append(project)
                 } label: {
                     HStack(spacing: 0) {
                         Rectangle()
@@ -148,9 +157,6 @@ struct ProjectListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .refreshable { await projectStore.fetch() }
-        .navigationDestination(item: $selectedProject) { project in
-            ProjectTabView(project: project, questionStore: questionStore)
-        }
         .confirmationDialog(
             projectToDelete.map { "Radera \($0.name)?" } ?? "",
             isPresented: Binding(
