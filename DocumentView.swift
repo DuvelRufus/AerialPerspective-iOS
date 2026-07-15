@@ -17,7 +17,7 @@ private enum DeleteIntent {
 
     var title: String {
         switch self {
-        case .action(let a): return "Radera \"\(a.title)\"?"
+        case .action: return "Ta bort åtgärd?"
         }
     }
 }
@@ -156,7 +156,7 @@ struct DocumentView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Radera", role: .destructive) {
+            Button("Ta bort", role: .destructive) {
                 guard let intent = pendingDelete else { return }
                 UINotificationFeedbackGenerator().notificationOccurred(.warning)
                 pendingDelete = nil
@@ -321,10 +321,19 @@ struct DocumentView: View {
                     .font(.subheadline)
                     .strikethrough(action.isDone)
                     .foregroundStyle(action.isDone ? Color.apTextTertiary : Color.apTextPrimary)
-                if let score = action.createdFromScore {
-                    Text("Skapad vid \(score) poäng")
-                        .font(.caption)
-                        .foregroundStyle(.apTextTertiary)
+                // Interim state marker until R4b-2's sections.
+                if stateMarker(action) != nil || action.createdFromScore != nil {
+                    HStack(spacing: 6) {
+                        if let marker = stateMarker(action) {
+                            Text(marker.word)
+                                .foregroundStyle(marker.color)
+                        }
+                        if let score = action.createdFromScore {
+                            Text("Skapad vid \(score) poäng")
+                                .foregroundStyle(Color.apTextTertiary)
+                        }
+                    }
+                    .font(.caption)
                 }
             }
             Spacer(minLength: 0)
@@ -342,19 +351,30 @@ struct DocumentView: View {
             Button(role: .destructive) {
                 pendingDelete = .action(action)
             } label: {
-                Label("Radera", systemImage: "trash")
+                Label("Ta bort", systemImage: "trash")
             }
         }
-        // R4a: Vänta/Ta bort are visual stubs — real behavior lands in R4b.
-        // Klar stays on the circle tap.
+        // Klar stays on the circle tap; Ta bort routes through the same
+        // confirm flow as the context menu — hard delete costs a confirm.
         .apSwipeActions(id: action.id, openId: $openSwipeActionId, actions: [
+            APSwipeAction(title: "Prio", systemImage: "flag.fill", color: .apOrange) {
+                Task { await actionStore.setState(action, to: .prio) }
+            },
             APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
-                print("DocumentView: Vänta stub – \(action.id)")
+                Task { await actionStore.setState(action, to: .waiting) }
             },
             APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
-                print("DocumentView: Ta bort stub – \(action.id)")
+                pendingDelete = .action(action)
             }
         ])
+    }
+
+    private func stateMarker(_ action: ProjectAction) -> (word: String, color: Color)? {
+        switch action.taskState {
+        case .prio:    return ("Prio", Color.apOrange)
+        case .waiting: return ("Väntar", Color.apWaiting)
+        default:       return nil
+        }
     }
 
     private func levelColor(_ level: ScoreLevel?) -> Color {
@@ -448,13 +468,9 @@ struct DocumentView: View {
     // MARK: - Delete
 
     private func performDelete(_ intent: DeleteIntent) async {
-        do {
-            switch intent {
-            case .action(let a):
-                try await actionStore.delete(a)
-            }
-        } catch {
-            print("DocumentView: delete error: \(error)")
+        switch intent {
+        case .action(let a):
+            await actionStore.delete(a)
         }
     }
 }

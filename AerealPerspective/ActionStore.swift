@@ -98,6 +98,7 @@ class ActionStore {
         domain: String,
         title: String,
         status: String? = nil,
+        state: String? = nil,
         assessmentId: UUID?,
         insightId: UUID? = nil,
         planActionId: UUID? = nil,
@@ -110,9 +111,10 @@ class ActionStore {
                 domain: domain,
                 title: title,
                 status: status,
-                // Mirror status so insert-as-done lands done in BOTH columns;
-                // nil leaves both on the matching 'open' server defaults.
-                state: status,
+                // Explicit state wins (create-as-prio/waiting keeps status on
+                // its 'open' default); otherwise mirror status so
+                // insert-as-done lands done in BOTH columns.
+                state: state ?? status,
                 assessment_id: assessmentId,
                 insight_id: insightId,
                 plan_action_id: planActionId,
@@ -125,17 +127,18 @@ class ActionStore {
         actions.insert(inserted, at: 0)
     }
 
-    func toggle(_ action: ProjectAction) async {
-        // state is the source of truth; un-toggling done lands on "open"
-        // regardless of any earlier prio/waiting (revisit with the R4 UI).
-        let newValue = action.isDone ? "open" : "done"
+    /// Sets the state column (source of truth) with optimistic update and
+    /// rollback, keeping the legacy status column truthful: done ↔ "done",
+    /// everything else (open/prio/waiting) is "open" — not done.
+    func setState(_ action: ProjectAction, to newState: TaskState) async {
+        let newStatus = newState == .done ? "done" : "open"
         guard let index = actions.firstIndex(where: { $0.id == action.id }) else { return }
-        actions[index].state = newValue
-        actions[index].status = newValue
+        actions[index].state = newState.rawValue
+        actions[index].status = newStatus
         do {
             try await supabase
                 .from("actions")
-                .update(StateUpdate(status: newValue, state: newValue))
+                .update(StateUpdate(status: newStatus, state: newState.rawValue))
                 .eq("id", value: action.id)
                 .execute()
         } catch {
@@ -143,16 +146,30 @@ class ActionStore {
                 actions[index].state = action.state
                 actions[index].status = action.status
             }
-            print("ActionStore toggle error: \(error)")
+            print("ActionStore setState error: \(error)")
         }
     }
 
-    func delete(_ action: ProjectAction) async throws {
-        try await supabase
-            .from("actions")
-            .delete()
-            .eq("id", value: action.id)
-            .execute()
-        actions.removeAll { $0.id == action.id }
+    func toggle(_ action: ProjectAction) async {
+        // Un-toggling done lands on "open" regardless of any earlier
+        // prio/waiting — decided; sections (R4b-2) may revisit.
+        await setState(action, to: action.isDone ? .open : .done)
+    }
+
+    /// Hard delete with optimistic removal; the row is re-inserted at its
+    /// old position if the DELETE fails.
+    func delete(_ action: ProjectAction) async {
+        guard let index = actions.firstIndex(where: { $0.id == action.id }) else { return }
+        let removed = actions.remove(at: index)
+        do {
+            try await supabase
+                .from("actions")
+                .delete()
+                .eq("id", value: action.id)
+                .execute()
+        } catch {
+            actions.insert(removed, at: min(index, actions.count))
+            print("ActionStore delete error: \(error)")
+        }
     }
 }

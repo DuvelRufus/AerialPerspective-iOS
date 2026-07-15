@@ -213,17 +213,27 @@ struct PlanView: View {
     }
 
     private func itemRow(_ item: PlanItem) -> some View {
-        // R4a: Vänta/Ta bort are visual stubs — real behavior lands in R4b.
-        // Klar stays on the circle tap.
+        // Prio/Vänta write the linked action's state, creating the link when
+        // none exists. Ta bort on a Plan row means removing the plan_actions
+        // row itself — that touches plan data and lands in R4b-2. Klar stays
+        // on the circle tap.
         rowContent(item)
             .apSwipeActions(id: item.id, openId: $openSwipeId, actions: [
-                APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
-                    print("PlanView: Vänta stub – \(item.id)")
+                APSwipeAction(title: "Prio", systemImage: "flag.fill", color: .apOrange) {
+                    setLinkedState(item, to: .prio)
                 },
-                APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
-                    print("PlanView: Ta bort stub – \(item.id)")
+                APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
+                    setLinkedState(item, to: .waiting)
                 }
             ])
+    }
+
+    private func setLinkedState(_ item: PlanItem, to state: TaskState) {
+        if let action = linkedAction(item) {
+            Task { await actionStore.setState(action, to: state) }
+        } else {
+            createLinkedAction(item, state: state)
+        }
     }
 
     @ViewBuilder
@@ -241,9 +251,21 @@ struct PlanView: View {
                     .strikethrough(done)
                     .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
                     .multilineTextAlignment(.leading)
-                Text(metadataLine(item))
+                // Interim marker until R4b-2's sections: state word + domain.
+                // The phase is data-only now, never shown.
+                if stateMarker(item) != nil || domainLabel(item) != nil {
+                    HStack(spacing: 6) {
+                        if let marker = stateMarker(item) {
+                            Text(marker.word)
+                                .foregroundStyle(marker.color)
+                        }
+                        if let domain = domainLabel(item) {
+                            Text(domain)
+                                .foregroundStyle(Color.apTextTertiary)
+                        }
+                    }
                     .font(.caption)
-                    .foregroundStyle(.apTextTertiary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -290,12 +312,18 @@ struct PlanView: View {
         return pendingPlanIds.contains(item.id)
     }
 
-    private func metadataLine(_ item: PlanItem) -> String {
-        // The item's domain is the action's category, shown only when present.
-        if let raw = item.domain, Domain(rawValue: raw) != nil {
-            return "\(item.phaseLabel) · \(raw)"
+    private func domainLabel(_ item: PlanItem) -> String? {
+        // The item's domain is the action's category, shown only when valid.
+        guard let raw = item.domain, Domain(rawValue: raw) != nil else { return nil }
+        return raw
+    }
+
+    private func stateMarker(_ item: PlanItem) -> (word: String, color: Color)? {
+        switch linkedAction(item)?.taskState {
+        case .prio:    return ("Prio", Color.apOrange)
+        case .waiting: return ("Väntar", Color.apWaiting)
+        default:       return nil
         }
-        return item.phaseLabel
     }
 
     // MARK: - Circle tap
@@ -310,11 +338,12 @@ struct PlanView: View {
         }
     }
 
-    private func createLinkedAction(_ item: PlanItem) {
-        // One tap marks it done directly, inserting the linked action with
-        // status "done". Use the plan item's domain when present; otherwise
-        // silently default to the source assessment's lowest-scoring domain —
-        // only as the action's domain, never shown in the plan metadata line.
+    private func createLinkedAction(_ item: PlanItem, state: TaskState = .done) {
+        // Inserts the linked action directly in the requested state (circle
+        // tap: done; swipe: prio/waiting — status stays 'open' for those).
+        // Use the plan item's domain when present; otherwise silently default
+        // to the source assessment's lowest-scoring domain — only as the
+        // action's domain, never shown on the row.
         let domain: Domain
         if let raw = item.domain, let resolved = Domain(rawValue: raw) {
             domain = resolved
@@ -324,7 +353,9 @@ struct PlanView: View {
             domain = .team
         }
 
-        pendingPlanIds.insert(item.id) // optimistic: flip to done immediately
+        if state == .done {
+            pendingPlanIds.insert(item.id) // optimistic: flip to done immediately
+        }
 
         Task {
             do {
@@ -332,7 +363,8 @@ struct PlanView: View {
                     projectId: project.id,
                     domain: domain.rawValue,
                     title: item.text,
-                    status: "done",
+                    status: state == .done ? "done" : nil,
+                    state: state.rawValue,
                     assessmentId: sourceAssessment?.id,
                     planActionId: item.id,
                     createdFromScore: domainScores.first { $0.domain == domain }?.score
