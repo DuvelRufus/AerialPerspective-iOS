@@ -23,6 +23,13 @@ struct ResultView: View {
     @State private var showInsights = false
     @State private var previousScores: [DomainScore]? = nil
 
+    // Completion auto-generation: insights + plan are produced here, the
+    // moment the result view appears with either missing.
+    @State private var insightStore = InsightStore()
+    @State private var planStore = PlanStore()
+    @State private var isAutoGenerating = false
+    @State private var generationError: String? = nil
+
     // Reveal animation: radar draws in, numbers count up, cells stagger in.
     @State private var revealProgress: Double = 0
     @State private var cellsRevealed = false
@@ -72,6 +79,22 @@ struct ResultView: View {
             if !hasLoadedScores {
                 ProgressView()
                     .tint(.apOrange)
+            } else if isAutoGenerating || generationError != nil {
+                // Full-screen while generating so the radar reveal fires
+                // only once the results actually appear.
+                APGenerationLoadingView(
+                    phrases: Self.generationPhrases,
+                    errorMessage: generationError,
+                    onRetry: {
+                        generationError = nil
+                        Task { await autoGenerateIfNeeded() }
+                    },
+                    onSkip: {
+                        // Just dismisses the overlay: whatever is still
+                        // missing re-triggers on the next visit.
+                        generationError = nil
+                    }
+                )
             } else {
                 resultContent
             }
@@ -81,6 +104,7 @@ struct ResultView: View {
                 await loadCurrentScores()
             }
             await loadPreviousScores()
+            await autoGenerateIfNeeded()
         }
         .navigationTitle("Resultat – Assessment \(assessment.version)")
         .navigationBarTitleDisplayMode(.inline)
@@ -216,6 +240,70 @@ struct ResultView: View {
             }
         }
         .font(.caption2.monospacedDigit())
+    }
+
+    // MARK: - Auto-generation (completion push-model)
+
+    /// The rolling lines shown while Claude works, in random order.
+    private static let generationPhrases: [String] = [
+        "Anropar Claude, sonnet-4-6 vaknar…",
+        "Läser av sex domäner, letar mönster…",
+        "Den här appen byggdes på under en månad, mestadels efter att barnen somnat.",
+        "Svåraste biten att bygga? Att låta dina avbockningar överleva när planen görs om.",
+        "Rumi: 'Igår var jag smart, så jag ville ändra världen. Idag är jag vis, så jag ändrar mig själv.'",
+        "Gåta: Ju mer du tar av mig, desto större blir jag. Vad är jag?",
+        "Översätter din bedömning till konkreta åtgärder…",
+        "En bra produktägare mäter inte hur mycket teamet levererar, utan om det rör sig åt rätt håll.",
+        "Byggd i SwiftUI mot Supabase, med Claude som bollplank och kodare. En person, fyra roller.",
+        "Let's practice patience, säger du till dig själv medan du väntar."
+    ]
+
+    /// Generates whatever this assessment is missing (insights and/or an
+    /// active plan). Guarded per step, so a retry after a partial failure
+    /// only re-runs the failed half. Never generates blind: a failed
+    /// insights fetch is ambiguous (empty vs error) and would risk
+    /// duplicate rows.
+    private func autoGenerateIfNeeded() async {
+        guard !isAutoGenerating else { return }
+        await insightStore.fetch(assessmentId: assessment.id)
+        guard insightStore.error == nil else { return }
+        await planStore.loadNewestActivePlan(assessmentIdsNewestFirst: [assessment.id])
+        let needsInsights = insightStore.insights.isEmpty
+        let needsPlan = planStore.activePlan == nil && planStore.error == nil
+        guard needsInsights || needsPlan else { return }
+
+        generationError = nil
+        isAutoGenerating = true
+        defer { isAutoGenerating = false }
+        do {
+            if needsInsights {
+                let generated = try await EdgeFunctionService.generateInsights(
+                    scores: domainScores,
+                    answers: answerStore.answers,
+                    questions: questionStore.questions,
+                    options: questionStore.options
+                )
+                try await insightStore.save(generated, for: assessment.id)
+            }
+            if needsPlan {
+                let generated = try await EdgeFunctionService.generatePlan(
+                    scores: domainScores,
+                    answers: answerStore.answers,
+                    questions: questionStore.questions,
+                    options: questionStore.options,
+                    durationValue: project.durationValue,
+                    durationUnit: project.durationUnit?.rawValue
+                )
+                // First generation for this assessment: no anchors to carry.
+                try await planStore.regenerate(
+                    assessmentId: assessment.id,
+                    plan: PlanStore.translate(generated, keyMap: [:])
+                )
+            }
+        } catch {
+            generationError = error.localizedDescription
+            print("ResultView: auto-generation error: \(error)")
+        }
     }
 
     // MARK: - Score loading

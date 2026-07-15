@@ -298,6 +298,132 @@ extension View {
     }
 }
 
+// MARK: - APGenerationLoadingView
+
+/// Full-screen loading for the completion auto-generation pipeline: a
+/// breathing orange orb (same glow language as GlowBurst/radar) over ONE
+/// rolling status line at a time, drawn from `phrases` in random order and
+/// reshuffled each cycle so repeats feel fresh. When `errorMessage` is set
+/// the orb dims and retry/skip actions replace the rolling text — never a
+/// dead end.
+struct APGenerationLoadingView: View {
+    var phrases: [String]
+    var errorMessage: String? = nil
+    var onRetry: () -> Void
+    var onSkip: () -> Void
+
+    @State private var shuffled: [String] = []
+    @State private var index = 0
+    @State private var breathe = false
+
+    var body: some View {
+        VStack(spacing: 44) {
+            orb
+            if errorMessage != nil {
+                errorContent
+            } else {
+                rollingText
+            }
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var orb: some View {
+        ZStack {
+            Circle()
+                .fill(Color.apOrange.opacity(0.12))
+                .frame(width: 160, height: 160)
+                .blur(radius: 24)
+                .scaleEffect(breathe ? 1.25 : 0.9)
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [Color.apOrange.opacity(0.55), Color.apOrange.opacity(0.05)],
+                        center: .center,
+                        startRadius: 4,
+                        endRadius: 60
+                    )
+                )
+                .frame(width: 120, height: 120)
+                .scaleEffect(breathe ? 1.1 : 0.92)
+            Circle()
+                .fill(LinearGradient.apOrangeGradient)
+                .frame(width: 26, height: 26)
+                .blur(radius: 1)
+                .shadow(color: Color.apOrange.opacity(0.8), radius: breathe ? 22 : 10)
+                .scaleEffect(breathe ? 1.15 : 0.9)
+        }
+        .opacity(errorMessage == nil ? 1 : 0.35)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+                breathe = true
+            }
+        }
+    }
+
+    private var currentPhrase: String? {
+        shuffled.isEmpty ? phrases.first : shuffled[index % shuffled.count]
+    }
+
+    private var rollingText: some View {
+        ZStack {
+            if let phrase = currentPhrase {
+                Text(phrase)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.apTextSecondary)
+                    .multilineTextAlignment(.center)
+                    .id(index)
+                    .transition(
+                        .asymmetric(
+                            insertion: .push(from: .bottom),
+                            removal: .push(from: .top)
+                        )
+                        .combined(with: .opacity)
+                    )
+            }
+        }
+        .frame(minHeight: 80, alignment: .top)
+        .task {
+            if shuffled.isEmpty { shuffled = phrases.shuffled() }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3.5))
+                guard !Task.isCancelled else { break }
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.9)) {
+                    if index + 1 >= shuffled.count {
+                        // New cycle: reshuffle, but never show the line we
+                        // just left twice in a row across the seam.
+                        var next = phrases.shuffled()
+                        if next.count > 1, next.first == currentPhrase {
+                            next.swapAt(0, 1)
+                        }
+                        shuffled = next
+                        index = 0
+                    } else {
+                        index += 1
+                    }
+                }
+            }
+        }
+    }
+
+    private var errorContent: some View {
+        VStack(spacing: 16) {
+            Text("Genereringen misslyckades")
+                .font(.headline)
+                .foregroundStyle(.apTextPrimary)
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.apTextSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            APPillButton(title: "Försök igen", action: onRetry)
+            APPillButton(title: "Visa resultat ändå", action: onSkip, style: .secondary)
+        }
+    }
+}
+
 // MARK: - APGeneratingState
 
 /// Loading state for AI generation: a pulsing sparkles icon over status
