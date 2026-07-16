@@ -11,7 +11,7 @@ import SwiftUI
 struct ProjectTabView: View {
     var project: Project
     var questionStore: QuestionStore
-    @State private var selectedSection = 0
+    @State private var selectedSection: Int
     @State private var actionStore = ActionStore()
     @State private var noteStore = NoteStore()
 
@@ -20,6 +20,14 @@ struct ProjectTabView: View {
         case plan = 1
         case actions = 2
         case ovrigt = 3
+    }
+
+    /// initialSection is a raw Section value (0 = Assessments, 1 = Plan …);
+    /// the Tasks lens pushes straight to Plan, existing callers keep 0.
+    init(project: Project, questionStore: QuestionStore, initialSection: Int = 0) {
+        self.project = project
+        self.questionStore = questionStore
+        _selectedSection = State(initialValue: initialSection)
     }
 
     var body: some View {

@@ -12,6 +12,10 @@ struct OversiktView: View {
     var questionStore: QuestionStore
 
     @State private var store = HealthOverviewStore()
+    @State private var tasksStore = OpenActionsStore()
+    /// Set only after a SUCCESSFUL load so the .task guard doesn't swallow
+    /// a failed first attempt; the error-state retry bypasses it entirely.
+    @State private var tasksLoaded = false
     @State private var selectedLens = 0
     // Driver den staggrade "tänds upp"-effekten när korten visas.
     @State private var rowsRevealed = false
@@ -29,7 +33,7 @@ struct OversiktView: View {
                 if selectedLens == 0 {
                     teamLens
                 } else {
-                    tasksPlaceholder
+                    tasksLens
                 }
             }
         }
@@ -38,6 +42,11 @@ struct OversiktView: View {
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        // On the stable ZStack, same lesson as ProjectListView: the
+        // destination must stay mounted across lens/loading states.
+        .navigationDestination(for: TeamPlanRoute.self) { route in
+            ProjectTabView(project: route.project, questionStore: questionStore, initialSection: 1)
+        }
         .task { await store.load(questionStore: questionStore) }
     }
 
@@ -63,23 +72,21 @@ struct OversiktView: View {
         }
     }
 
-    /// Placeholder until the Tasks lens (the global task view that replaces
-    /// per-team Åtgärder) lands.
-    private var tasksPlaceholder: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checklist")
-                .font(.system(size: 44))
-                .foregroundStyle(.apOrange)
-            Text("Tasks kommer snart")
-                .font(.headline)
-                .foregroundStyle(.apTextPrimary)
-            Text("Alla teams uppgifter, samlade i en vy.")
-                .font(.caption)
-                .foregroundStyle(.apTextSecondary)
-                .multilineTextAlignment(.center)
+    /// The global Tasks lens. Routes need full Project values; the health
+    /// store's rows (loaded at view mount) provide the lookup.
+    private var tasksLens: some View {
+        TasksLensView(
+            store: tasksStore,
+            questionStore: questionStore,
+            projectsById: Dictionary(
+                uniqueKeysWithValues: store.rows.map { ($0.project.id, $0.project) }
+            )
+        )
+        .task {
+            guard !tasksLoaded else { return }
+            await tasksStore.load(questionStore: questionStore)
+            if tasksStore.error == nil { tasksLoaded = true }
         }
-        .padding(.horizontal, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - States
