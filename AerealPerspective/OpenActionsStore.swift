@@ -51,21 +51,25 @@ class OpenActionsStore {
         defer { isLoading = false }
         error = nil
         do {
-            let actions: [ProjectAction] = try await supabase
+            // The three fetches are independent — run them concurrently;
+            // one 5G round trip of latency instead of five stacked.
+            let projectStore = ProjectStore()
+            async let actionsFetch: [ProjectAction] = supabase
                 .from("actions")
                 .select()
                 .neq("state", value: "done")
                 .execute()
                 .value
+            async let projectsFetch: Void = projectStore.fetch()
+            async let scoresFetch = latestScores(questionStore: questionStore)
 
-            let projectStore = ProjectStore()
-            await projectStore.fetch()
+            let actions = try await actionsFetch
+            _ = await projectsFetch
             if let projectError = projectStore.error { throw projectError }
             let nameByProject = Dictionary(
                 uniqueKeysWithValues: projectStore.projects.map { ($0.id, $0.name) }
             )
-
-            let scoresByProject = try await latestScores(questionStore: questionStore)
+            let scoresByProject = try await scoresFetch
 
             var groups: [TaskState: [OpenActionRow]] = [:]
             for action in actions {
@@ -130,15 +134,26 @@ class OpenActionsStore {
         guard !assessments.isEmpty else { return [:] }
 
         var answersByAssessment: [UUID: [UUID: UUID]] = [:]
-        let answers: [Answer] = try await supabase
-            .from("answers")
-            .select()
-            .in("assessment_id", values: assessments.map { $0.id.uuidString })
-            .execute()
-            .value
-        for row in answers {
-            guard let optionId = row.answerOptionId else { continue }
-            answersByAssessment[row.assessmentId, default: [:]][row.questionId] = optionId
+        let assessmentIds = assessments.map { $0.id.uuidString }
+        // PostgREST caps a response at 1000 rows silently — page until a
+        // short page marks the end. Ordered so page windows stay disjoint.
+        let pageSize = 1000
+        var offset = 0
+        while true {
+            let page: [Answer] = try await supabase
+                .from("answers")
+                .select()
+                .in("assessment_id", values: assessmentIds)
+                .order("id", ascending: true)
+                .range(from: offset, to: offset + pageSize - 1)
+                .execute()
+                .value
+            for row in page {
+                guard let optionId = row.answerOptionId else { continue }
+                answersByAssessment[row.assessmentId, default: [:]][row.questionId] = optionId
+            }
+            if page.count < pageSize { break }
+            offset += pageSize
         }
 
         var scoresByProject: [UUID: [DomainScore]] = [:]
