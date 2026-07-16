@@ -530,6 +530,56 @@ extension View {
     }
 }
 
+// MARK: - APSegmentedControl
+
+/// Capsule pill selector (lifted from ProjectTabView so Översikt's
+/// Team | Tasks lens shares it). Content-width pills; scrolls
+/// horizontally if the segments ever don't fit.
+struct APSegmentedControl: View {
+    @Binding var selection: Int
+    let options: [String]
+    @Namespace private var ns
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            pills
+            ScrollView(.horizontal, showsIndicators: false) {
+                pills
+            }
+        }
+    }
+
+    private var pills: some View {
+        HStack(spacing: 4) {
+            ForEach(options.indices, id: \.self) { i in
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        selection = i
+                    }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
+                    Text(options[i])
+                        .font(.subheadline.weight(selection == i ? .semibold : .regular))
+                        .foregroundStyle(selection == i ? Color.apTextPrimary : Color.apTextSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background {
+                            if selection == i {
+                                Capsule()
+                                    .fill(Color.apSurfaceElevated)
+                                    .matchedGeometryEffect(id: "seg", in: ns)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(Capsule().fill(Color.apSurface))
+        .overlay(Capsule().strokeBorder(Color.apHairline, lineWidth: 0.5))
+    }
+}
+
 // MARK: - Score band colors
 
 extension Color {

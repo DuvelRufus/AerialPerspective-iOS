@@ -12,6 +12,7 @@ struct OversiktView: View {
     var questionStore: QuestionStore
 
     @State private var store = HealthOverviewStore()
+    @State private var selectedLens = 0
     // Driver den staggrade "tänds upp"-effekten när korten visas.
     @State private var rowsRevealed = false
 
@@ -19,18 +20,17 @@ struct OversiktView: View {
         ZStack {
             APAmbientBackground()
 
-            if store.isLoading {
-                ProgressView()
-                    .tint(.apOrange)
-            } else if store.error != nil {
-                APErrorState {
-                    store.error = nil
-                    Task { await store.load(questionStore: questionStore) }
+            VStack(spacing: 0) {
+                APSegmentedControl(selection: $selectedLens, options: ["Team", "Tasks"])
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+
+                if selectedLens == 0 {
+                    teamLens
+                } else {
+                    tasksPlaceholder
                 }
-            } else if store.rows.isEmpty {
-                emptyState
-            } else {
-                healthList
             }
         }
         .navigationTitle("Översikt")
@@ -39,6 +39,47 @@ struct OversiktView: View {
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .task { await store.load(questionStore: questionStore) }
+    }
+
+    // MARK: - Lenses
+
+    @ViewBuilder
+    private var teamLens: some View {
+        if store.isLoading {
+            ProgressView()
+                .tint(.apOrange)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if store.error != nil {
+            APErrorState {
+                store.error = nil
+                Task { await store.load(questionStore: questionStore) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if store.rows.isEmpty {
+            emptyState
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            healthList
+        }
+    }
+
+    /// Placeholder until the Tasks lens (the global task view that replaces
+    /// per-team Åtgärder) lands.
+    private var tasksPlaceholder: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checklist")
+                .font(.system(size: 44))
+                .foregroundStyle(.apOrange)
+            Text("Tasks kommer snart")
+                .font(.headline)
+                .foregroundStyle(.apTextPrimary)
+            Text("Alla teams uppgifter, samlade i en vy.")
+                .font(.caption)
+                .foregroundStyle(.apTextSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - States
