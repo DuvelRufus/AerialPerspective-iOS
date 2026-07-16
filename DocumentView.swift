@@ -321,19 +321,13 @@ struct DocumentView: View {
                     .font(.subheadline)
                     .strikethrough(action.isDone)
                     .foregroundStyle(action.isDone ? Color.apTextTertiary : Color.apTextPrimary)
-                // Interim state marker until R4b-2's sections.
-                if stateMarker(action) != nil || action.createdFromScore != nil {
-                    HStack(spacing: 6) {
-                        if let marker = stateMarker(action) {
-                            Text(marker.word)
-                                .foregroundStyle(marker.color)
-                        }
-                        if let score = action.createdFromScore {
-                            Text("Skapad vid \(score) poäng")
-                                .foregroundStyle(Color.apTextTertiary)
-                        }
-                    }
-                    .font(.caption)
+                // Interim state marker until R4b-2's sections. (No origin
+                // score here: it read as a mismatch against the domain
+                // header's current score.)
+                if let marker = stateMarker(action) {
+                    Text(marker.word)
+                        .font(.caption)
+                        .foregroundStyle(marker.color)
                 }
             }
             Spacer(minLength: 0)
