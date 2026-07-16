@@ -162,10 +162,10 @@ struct PlanView: View {
                     planSection(title: "ATT GÖRA", tint: nil, list: sections.open)
                 }
                 if !sections.waiting.isEmpty {
-                    collapsibleSection(title: "VÄNTAR", list: sections.waiting, expanded: $waitingExpanded)
+                    collapsibleSection(title: "VÄNTAR", countTint: Color.apWaiting, list: sections.waiting, expanded: $waitingExpanded)
                 }
                 if !sections.done.isEmpty {
-                    collapsibleSection(title: "KLART", list: sections.done, expanded: $doneExpanded)
+                    collapsibleSection(title: "KLART", countTint: Color.apStrong, list: sections.done, expanded: $doneExpanded)
                 }
 
                 // Regeneration replaces the shown active plan — confirmed.
@@ -271,7 +271,7 @@ struct PlanView: View {
         }
     }
 
-    private func collapsibleSection(title: String, list: [PlanItem], expanded: Binding<Bool>) -> some View {
+    private func collapsibleSection(title: String, countTint: Color, list: [PlanItem], expanded: Binding<Bool>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -280,10 +280,15 @@ struct PlanView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text("\(title) · \(list.count)")
-                        .font(.caption)
-                        .tracking(1.5)
-                        .foregroundStyle(Color.apTextSecondary)
+                    // Only the count carries the section color.
+                    HStack(spacing: 4) {
+                        Text("\(title) ·")
+                            .foregroundStyle(Color.apTextSecondary)
+                        Text("\(list.count)")
+                            .foregroundStyle(countTint)
+                    }
+                    .font(.caption)
+                    .tracking(1.5)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Color.apTextTertiary)
@@ -408,12 +413,22 @@ struct PlanView: View {
                     .strikethrough(done)
                     .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
                     .multilineTextAlignment(.leading)
-                // Sections carry the state now; the caption is domain only.
+                // State tag + domain: the tag keeps the row legible when
+                // scrolled away from its section header. ATT GÖRA and KLART
+                // rows carry no tag (default resp. strikethrough reads done).
                 // The phase is data-only, never shown.
-                if let domain = domainLabel(item) {
-                    Text(domain)
-                        .font(.caption)
-                        .foregroundStyle(.apTextTertiary)
+                if stateTag(item) != nil || domainLabel(item) != nil {
+                    HStack(spacing: 6) {
+                        if let tag = stateTag(item) {
+                            Text(tag.word)
+                                .foregroundStyle(tag.color)
+                        }
+                        if let domain = domainLabel(item) {
+                            Text(domain)
+                                .foregroundStyle(Color.apTextTertiary)
+                        }
+                    }
+                    .font(.caption)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -465,6 +480,14 @@ struct PlanView: View {
         // The item's domain is the action's category, shown only when valid.
         guard let raw = item.domain, Domain(rawValue: raw) != nil else { return nil }
         return raw
+    }
+
+    private func stateTag(_ item: PlanItem) -> (word: String, color: Color)? {
+        switch itemState(item) {
+        case .prio:    return ("Prio", Color.apOrange)
+        case .waiting: return ("Väntar", Color.apWaiting)
+        default:       return nil
+        }
     }
 
     // MARK: - Circle tap
