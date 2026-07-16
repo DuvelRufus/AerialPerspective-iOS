@@ -59,8 +59,8 @@ class HealthOverviewStore {
     /// .in, and the open-action counts. Everything else is computed here:
     /// completed = answered count >= question count; trend = total-score
     /// delta between the two newest completed assessments.
-    func load(questionStore: QuestionStore) async {
-        isLoading = true
+    func load(questionStore: QuestionStore, showSpinner: Bool = true) async {
+        if showSpinner { isLoading = true }
         defer { isLoading = false }
         error = nil
         do {
