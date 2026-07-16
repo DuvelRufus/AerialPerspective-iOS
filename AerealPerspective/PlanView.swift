@@ -40,6 +40,10 @@ struct PlanView: View {
     // Row state
     /// The plan item whose swipe actions are revealed, if any.
     @State private var openSwipeId: UUID? = nil
+    // Section expansion: waiting is deliberately-deferred ACTIVE work and
+    // stays visible by default; only finished work starts collapsed.
+    @State private var waitingExpanded = true
+    @State private var doneExpanded = false
     /// Plan item ids whose done-marked action is being inserted — renders as
     /// done before the row lands in actionStore.actions.
     @State private var pendingPlanIds: Set<UUID> = []
@@ -123,28 +127,26 @@ struct PlanView: View {
     // MARK: - To-do list
 
     private var todoList: some View {
-        let items = sortedItems()
+        let sections = makeSections()
         let total = items.count
-        let done = items.filter { isDone($0) }.count
+        let done = sections.done.count
 
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 progressHeader(done: done, total: total)
 
-                VStack(spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.order) { index, item in
-                        itemRow(item)
-                        if index != items.count - 1 {
-                            Divider().background(Color.apHairline)
-                        }
-                    }
+                if !sections.prio.isEmpty {
+                    planSection(title: "PRIO", tint: Color.apOrange, list: sections.prio)
                 }
-                .background(Color.apSurface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(Color.apHairline, lineWidth: 0.5)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                if !sections.open.isEmpty {
+                    planSection(title: "ATT GÖRA", tint: nil, list: sections.open)
+                }
+                if !sections.waiting.isEmpty {
+                    collapsibleSection(title: "VÄNTAR", list: sections.waiting, expanded: $waitingExpanded)
+                }
+                if !sections.done.isEmpty {
+                    collapsibleSection(title: "KLART", list: sections.done, expanded: $doneExpanded)
+                }
 
                 // Regeneration replaces the shown active plan — confirmed.
                 // (First generation is automatic on assessment completion.)
@@ -176,12 +178,123 @@ struct PlanView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+            // Spring rows between sections when a state changes (swipe
+            // Prio/Vänta, circle Klar) — keyed to the store, which is where
+            // the optimistic flips land.
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: actionStore.actions)
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: pendingPlanIds)
         }
         .refreshable {
             actionStore.error = nil
             await actionStore.fetch(projectId: project.id)
             await load()
         }
+    }
+
+    // MARK: - Sections
+
+    private struct PlanSections {
+        var prio: [PlanItem] = []
+        var open: [PlanItem] = []
+        var waiting: [PlanItem] = []
+        var done: [PlanItem] = []
+    }
+
+    private func itemState(_ item: PlanItem) -> TaskState {
+        if let action = linkedAction(item) { return action.taskState }
+        return pendingPlanIds.contains(item.id) ? .done : .open
+    }
+
+    /// Lower domain score = more urgent. Items without a resolvable domain
+    /// sort last within their section.
+    private func urgency(_ item: PlanItem) -> Int {
+        guard let raw = item.domain,
+              let domain = Domain(rawValue: raw),
+              let score = domainScores.first(where: { $0.domain == domain })?.score
+        else { return Int.max }
+        return score
+    }
+
+    private func sortedByUrgency(_ list: [PlanItem]) -> [PlanItem] {
+        list.sorted { a, b in
+            let ua = urgency(a)
+            let ub = urgency(b)
+            if ua != ub { return ua < ub }
+            return a.order < b.order
+        }
+    }
+
+    private func makeSections() -> PlanSections {
+        var sections = PlanSections()
+        for item in items {
+            switch itemState(item) {
+            case .prio:    sections.prio.append(item)
+            case .open:    sections.open.append(item)
+            case .waiting: sections.waiting.append(item)
+            case .done:    sections.done.append(item)
+            }
+        }
+        sections.prio = sortedByUrgency(sections.prio)
+        sections.open = sortedByUrgency(sections.open)
+        sections.waiting = sortedByUrgency(sections.waiting)
+        sections.done = sortedByUrgency(sections.done)
+        return sections
+    }
+
+    private func planSection(title: String, tint: Color?, list: [PlanItem]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .tracking(1.5)
+                .foregroundStyle(tint ?? Color.apTextSecondary)
+            itemCard(list)
+        }
+    }
+
+    private func collapsibleSection(title: String, list: [PlanItem], expanded: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    expanded.wrappedValue.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("\(title) · \(list.count)")
+                        .font(.caption)
+                        .tracking(1.5)
+                        .foregroundStyle(Color.apTextSecondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Color.apTextTertiary)
+                        .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expanded.wrappedValue {
+                itemCard(list)
+            }
+        }
+    }
+
+    private func itemCard(_ list: [PlanItem]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(list.enumerated()), id: \.element.id) { index, item in
+                itemRow(item)
+                if index != list.count - 1 {
+                    Divider().background(Color.apHairline)
+                }
+            }
+        }
+        .background(Color.apSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.apHairline, lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func progressHeader(done: Int, total: Int) -> some View {
@@ -251,20 +364,12 @@ struct PlanView: View {
                     .strikethrough(done)
                     .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
                     .multilineTextAlignment(.leading)
-                // Interim marker until R4b-2's sections: state word + domain.
-                // The phase is data-only now, never shown.
-                if stateMarker(item) != nil || domainLabel(item) != nil {
-                    HStack(spacing: 6) {
-                        if let marker = stateMarker(item) {
-                            Text(marker.word)
-                                .foregroundStyle(marker.color)
-                        }
-                        if let domain = domainLabel(item) {
-                            Text(domain)
-                                .foregroundStyle(Color.apTextTertiary)
-                        }
-                    }
-                    .font(.caption)
+                // Sections carry the state now; the caption is domain only.
+                // The phase is data-only, never shown.
+                if let domain = domainLabel(item) {
+                    Text(domain)
+                        .font(.caption)
+                        .foregroundStyle(.apTextTertiary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -316,14 +421,6 @@ struct PlanView: View {
         // The item's domain is the action's category, shown only when valid.
         guard let raw = item.domain, Domain(rawValue: raw) != nil else { return nil }
         return raw
-    }
-
-    private func stateMarker(_ item: PlanItem) -> (word: String, color: Color)? {
-        switch linkedAction(item)?.taskState {
-        case .prio:    return ("Prio", Color.apOrange)
-        case .waiting: return ("Väntar", Color.apWaiting)
-        default:       return nil
-        }
     }
 
     // MARK: - Circle tap
@@ -445,18 +542,6 @@ struct PlanView: View {
             }
         }
         return items
-    }
-
-    /// Undone first, done last. Within each group, preserve phase order
-    /// (and original order within a phase) via the stable `order` tiebreaker.
-    private func sortedItems() -> [PlanItem] {
-        items.sorted { a, b in
-            let aDone = isDone(a)
-            let bDone = isDone(b)
-            if aDone != bDone { return !aDone }
-            if a.phaseIndex != b.phaseIndex { return a.phaseIndex < b.phaseIndex }
-            return a.order < b.order
-        }
     }
 
     // MARK: - Load

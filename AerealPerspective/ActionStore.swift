@@ -14,7 +14,8 @@ enum TaskState: String {
     case open, prio, waiting, done
 }
 
-struct ProjectAction: Identifiable, Codable {
+// Equatable so section moves can animate on .animation(value: actions).
+struct ProjectAction: Identifiable, Codable, Equatable {
     let id: UUID
     var projectId: UUID
     var domain: String
