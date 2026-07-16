@@ -17,6 +17,16 @@ enum Domain: String, CaseIterable, Codable {
     case tech = "Tech"
     case stakeholders = "Stakeholders"
     case culture = "Culture"
+
+    /// Case-insensitive match: domain strings from model output arrive in
+    /// varying casing ("tech" vs "Tech"), and rawValue matching misses them.
+    init?(caseInsensitive raw: String) {
+        let lowered = raw.lowercased()
+        guard let match = Domain.allCases.first(where: { $0.rawValue.lowercased() == lowered }) else {
+            return nil
+        }
+        self = match
+    }
 }
 
 // MARK: - Project

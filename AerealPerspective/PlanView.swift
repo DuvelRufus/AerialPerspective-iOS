@@ -229,7 +229,7 @@ struct PlanView: View {
     /// sort last within their section.
     private func urgency(_ item: PlanItem) -> Int {
         guard let raw = item.domain,
-              let domain = Domain(rawValue: raw),
+              let domain = Domain(caseInsensitive: raw),
               let score = domainScores.first(where: { $0.domain == domain })?.score
         else { return Int.max }
         return score
@@ -478,8 +478,9 @@ struct PlanView: View {
 
     private func domainLabel(_ item: PlanItem) -> String? {
         // The item's domain is the action's category, shown only when valid.
-        guard let raw = item.domain, Domain(rawValue: raw) != nil else { return nil }
-        return raw
+        // Case-insensitive, displayed in the enum's canonical casing.
+        guard let raw = item.domain, let domain = Domain(caseInsensitive: raw) else { return nil }
+        return domain.rawValue
     }
 
     private func stateTag(_ item: PlanItem) -> (word: String, color: Color)? {
@@ -509,7 +510,7 @@ struct PlanView: View {
         // to the source assessment's lowest-scoring domain — only as the
         // action's domain, never shown on the row.
         let domain: Domain
-        if let raw = item.domain, let resolved = Domain(rawValue: raw) {
+        if let raw = item.domain, let resolved = Domain(caseInsensitive: raw) {
             domain = resolved
         } else if let lowest = domainScores.min(by: { $0.score < $1.score })?.domain {
             domain = lowest

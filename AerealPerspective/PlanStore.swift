@@ -103,7 +103,9 @@ class PlanStore {
                 }
                 return RegeneratedPlanPayload.Action(
                     text: action.text,
-                    domain: action.domain,
+                    // Lowercase on write: model output casing varies, reads
+                    // are case-insensitive, new rows stay consistent.
+                    domain: action.domain?.lowercased(),
                     prev_id: prevId
                 )
             }
