@@ -44,6 +44,8 @@ struct PlanView: View {
     // stays visible by default; only finished work starts collapsed.
     @State private var waitingExpanded = true
     @State private var doneExpanded = false
+    /// The plan item awaiting the "Ta bort ur planen?" confirmation.
+    @State private var pendingPlanDelete: PlanItem? = nil
     /// Plan item ids whose done-marked action is being inserted — renders as
     /// done before the row lands in actionStore.actions.
     @State private var pendingPlanIds: Set<UUID> = []
@@ -62,6 +64,24 @@ struct PlanView: View {
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .task { await load() }
+        .confirmationDialog(
+            "Ta bort ur planen?",
+            isPresented: Binding(
+                get: { pendingPlanDelete != nil },
+                set: { if !$0 { pendingPlanDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Ta bort", role: .destructive) {
+                guard let item = pendingPlanDelete else { return }
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                pendingPlanDelete = nil
+                deleteFromPlan(item)
+            }
+            Button("Avbryt", role: .cancel) { pendingPlanDelete = nil }
+        } message: {
+            Text("Åtgärden tas bort ur planen. En kopplad uppgift ligger kvar under Åtgärder.")
+        }
     }
 
     /// Cycled by APGeneratingState while generate-plan-funktionen kör.
@@ -327,9 +347,9 @@ struct PlanView: View {
 
     private func itemRow(_ item: PlanItem) -> some View {
         // Prio/Vänta write the linked action's state, creating the link when
-        // none exists. Ta bort on a Plan row means removing the plan_actions
-        // row itself — that touches plan data and lands in R4b-2. Klar stays
-        // on the circle tap.
+        // none exists. Ta bort removes the plan_actions row (plan curation)
+        // behind a confirm — a linked task survives in Åtgärder via the
+        // FK's SET NULL. Klar stays on the circle tap.
         rowContent(item)
             .apSwipeActions(id: item.id, openId: $openSwipeId, actions: [
                 APSwipeAction(title: "Prio", systemImage: "flag.fill", color: .apOrange) {
@@ -337,8 +357,32 @@ struct PlanView: View {
                 },
                 APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
                     setLinkedState(item, to: .waiting)
+                },
+                APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
+                    pendingPlanDelete = item
                 }
             ])
+    }
+
+    private func deleteFromPlan(_ item: PlanItem) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            _ = items.remove(at: index)
+        }
+        Task {
+            do {
+                try await planStore.deletePlanAction(item.id)
+                // The FK nulled any linked task's plan_action_id server-side;
+                // refetch so the in-memory link doesn't go stale.
+                await actionStore.fetch(projectId: project.id)
+            } catch {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    items.insert(item, at: min(index, items.count))
+                }
+                errorMessage = error.localizedDescription
+                print("PlanView: deleteFromPlan error: \(error)")
+            }
+        }
     }
 
     private func setLinkedState(_ item: PlanItem, to state: TaskState) {

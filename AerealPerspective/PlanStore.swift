@@ -60,6 +60,19 @@ class PlanStore {
         }
     }
 
+    /// Plan curation: removes one plan_actions row. The linked actions row
+    /// is never touched — the FK's ON DELETE SET NULL detaches it, so the
+    /// task survives in Åtgärder. Throwing: the view owns the optimistic
+    /// removal/rollback of its visible list.
+    func deletePlanAction(_ id: UUID) async throws {
+        try await supabase
+            .from("plan_actions")
+            .delete()
+            .eq("id", value: id)
+            .execute()
+        actions.removeAll { $0.id == id }
+    }
+
     /// Persists a generated plan through the regenerate_plan RPC: inserts
     /// the new plan + actions, re-links tasks via prev_id, archives the
     /// outgoing active plan and activates the new one — atomically. Also
