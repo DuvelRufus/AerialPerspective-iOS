@@ -530,6 +530,26 @@ extension View {
     }
 }
 
+// MARK: - Score band colors
+
+extension Color {
+    /// THE level→color mapping (Resultat cards, Åtgärder domain headers,
+    /// Plan domain tags) — one copy, no local twins. nil = no score → muted.
+    static func apLevel(_ level: ScoreLevel?) -> Color {
+        switch level {
+        case .strong: return .apStrong
+        case .note:   return .apNote
+        case .risk:   return .apRisk
+        case nil:     return .apTextTertiary
+        }
+    }
+
+    /// Band color for a 0–100 score, thresholds owned by ScoringService.
+    static func apScore(_ score: Int) -> Color {
+        apLevel(ScoringService.level(for: score))
+    }
+}
+
 // MARK: - Swipe Actions
 
 /// One labeled, colored button revealed by apSwipeActions.

@@ -192,7 +192,7 @@ struct ResultView: View {
     private func domainCell(_ ds: DomainScore) -> some View {
         HStack(spacing: 0) {
             Rectangle()
-                .fill(accentColor(for: ds.level))
+                .fill(Color.apLevel(ds.level))
                 .frame(width: 3)
             VStack(alignment: .leading, spacing: 6) {
                 Text(ds.domain.rawValue.uppercased())
@@ -350,14 +350,6 @@ struct ResultView: View {
             }
         } catch {
             print("ResultView: loadPreviousScores error: \(error)")
-        }
-    }
-
-    private func accentColor(for level: ScoreLevel) -> Color {
-        switch level {
-        case .risk:   return Color.apRisk
-        case .note:   return Color.apNote
-        case .strong: return Color.apStrong
         }
     }
 

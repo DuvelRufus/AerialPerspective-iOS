@@ -212,7 +212,7 @@ struct DocumentView: View {
 
         return HStack(spacing: 0) {
             Rectangle()
-                .fill(levelColor(ds?.level))
+                .fill(Color.apLevel(ds?.level))
                 .frame(width: 4)
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -270,7 +270,7 @@ struct DocumentView: View {
         let ds = domainScores[domain]
         return HStack(spacing: 0) {
             Rectangle()
-                .fill(levelColor(ds?.level))
+                .fill(Color.apLevel(ds?.level))
                 .frame(width: 4)
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(domain.rawValue.uppercased())
@@ -371,22 +371,14 @@ struct DocumentView: View {
         }
     }
 
-    private func levelColor(_ level: ScoreLevel?) -> Color {
-        switch level {
-        case .risk:   return .apRisk
-        case .note:   return .apNote
-        case .strong: return .apStrong
-        case nil:     return .apTextTertiary
-        }
-    }
 
     private func levelPill(_ level: ScoreLevel) -> some View {
         Text(levelLabel(level))
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(levelColor(level))
+            .foregroundStyle(Color.apLevel(level))
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(levelColor(level).opacity(0.15))
+            .background(Color.apLevel(level).opacity(0.15))
             .clipShape(Capsule())
     }
 

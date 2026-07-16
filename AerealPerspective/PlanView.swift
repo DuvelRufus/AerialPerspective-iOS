@@ -413,22 +413,34 @@ struct PlanView: View {
                     .strikethrough(done)
                     .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
                     .multilineTextAlignment(.leading)
-                // State tag + domain: the tag keeps the row legible when
-                // scrolled away from its section header. ATT GÖRA and KLART
-                // rows carry no tag (default resp. strikethrough reads done).
+                // Domain pill (score-band colored) first, then the state tag
+                // that keeps Prio/Väntar legible away from the section
+                // header. ATT GÖRA and KLART rows carry no state tag.
                 // The phase is data-only, never shown.
                 if stateTag(item) != nil || domainLabel(item) != nil {
                     HStack(spacing: 6) {
+                        if let domain = domainLabel(item) {
+                            if let band = domainBandColor(item) {
+                                Text(domain)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(band)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(band.opacity(0.15))
+                                    .clipShape(Capsule())
+                            } else {
+                                // No score for the domain: plain, no pill.
+                                Text(domain)
+                                    .font(.caption)
+                                    .foregroundStyle(Color.apTextTertiary)
+                            }
+                        }
                         if let tag = stateTag(item) {
                             Text(tag.word)
+                                .font(.caption)
                                 .foregroundStyle(tag.color)
                         }
-                        if let domain = domainLabel(item) {
-                            Text(domain)
-                                .foregroundStyle(Color.apTextTertiary)
-                        }
                     }
-                    .font(.caption)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -481,6 +493,16 @@ struct PlanView: View {
         // Case-insensitive, displayed in the enum's canonical casing.
         guard let raw = item.domain, let domain = Domain(caseInsensitive: raw) else { return nil }
         return domain.rawValue
+    }
+
+    /// Score-band color for the item's domain via the shared helper;
+    /// nil (unknown domain or no score) falls back to plain text.
+    private func domainBandColor(_ item: PlanItem) -> Color? {
+        guard let raw = item.domain,
+              let domain = Domain(caseInsensitive: raw),
+              let score = domainScores.first(where: { $0.domain == domain })?.score
+        else { return nil }
+        return Color.apScore(score)
     }
 
     private func stateTag(_ item: PlanItem) -> (word: String, color: Color)? {
