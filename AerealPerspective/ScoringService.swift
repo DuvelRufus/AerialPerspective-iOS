@@ -57,6 +57,14 @@ struct ScoringService {
         return result
     }
 
+    /// Overall assessment score: rounded average of the domain scores.
+    /// The Översikt trend metric is total(latest) − total(previous).
+    static func total(_ scores: [DomainScore]) -> Int {
+        guard !scores.isEmpty else { return 0 }
+        let sum = scores.reduce(0) { $0 + $1.score }
+        return Int((Double(sum) / Double(scores.count)).rounded())
+    }
+
     static func level(for score: Int) -> ScoreLevel {
         if score >= 66 { return .strong }
         if score >= 34 { return .note }
