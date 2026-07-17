@@ -35,17 +35,6 @@ class HealthOverviewStore {
     var isLoading = false
     var error: Error? = nil
 
-    private struct AssessmentRef: Decodable {
-        let id: UUID
-        let projectId: UUID
-        let version: Int
-
-        enum CodingKeys: String, CodingKey {
-            case id, version
-            case projectId = "project_id"
-        }
-    }
-
     private struct OpenActionRef: Decodable {
         let projectId: UUID
 
@@ -54,48 +43,21 @@ class HealthOverviewStore {
         }
     }
 
-    /// Four queries regardless of team count — no N+1: projects, all
-    /// assessments (RLS scopes them to the owner), all answers batched via
-    /// .in, and the open-action counts. Everything else is computed here:
-    /// completed = answered count >= question count; trend = total-score
-    /// delta between the two newest completed assessments.
+    /// Fixed query count regardless of team count — no N+1: projects, the
+    /// shared AssessmentScoresLoader (assessments + paginated answers +
+    /// completed-per-project derivation), and the open-action counts. Trend
+    /// = total-score delta between the two newest completed assessments.
     func load(questionStore: QuestionStore, showSpinner: Bool = true) async {
         if showSpinner { isLoading = true }
         defer { isLoading = false }
         error = nil
         do {
-            if questionStore.questions.isEmpty {
-                await questionStore.fetch()
-            }
-            let questions = questionStore.questions
-            let options = questionStore.options
-            let questionCount = questions.count
-
             let projectStore = ProjectStore()
             await projectStore.fetch()
             if let projectError = projectStore.error { throw projectError }
             let projects = projectStore.projects
 
-            let assessments: [AssessmentRef] = try await supabase
-                .from("assessments")
-                .select("id, project_id, version")
-                .execute()
-                .value
-
-            var answersByAssessment: [UUID: [UUID: UUID]] = [:]
-            let assessmentIds = assessments.map { $0.id.uuidString }
-            if !assessmentIds.isEmpty {
-                let answers: [Answer] = try await supabase
-                    .from("answers")
-                    .select()
-                    .in("assessment_id", values: assessmentIds)
-                    .execute()
-                    .value
-                for row in answers {
-                    guard let optionId = row.answerOptionId else { continue }
-                    answersByAssessment[row.assessmentId, default: [:]][row.questionId] = optionId
-                }
-            }
+            let scoreData = try await AssessmentScoresLoader.load(questionStore: questionStore)
 
             let openRows: [OpenActionRef] = try await supabase
                 .from("actions")
@@ -108,24 +70,14 @@ class HealthOverviewStore {
                 openCounts[row.projectId, default: 0] += 1
             }
 
-            let byProject = Dictionary(grouping: assessments, by: { $0.projectId })
             rows = projects.map { project in
-                let completed = (byProject[project.id] ?? [])
-                    .filter { questionCount > 0 && (answersByAssessment[$0.id]?.count ?? 0) >= questionCount }
-                    .sorted { $0.version > $1.version }
+                let completed = scoreData.completedByProject[project.id] ?? []
 
-                func scores(_ ref: AssessmentRef) -> [DomainScore] {
-                    ScoringService.compute(
-                        answers: answersByAssessment[ref.id] ?? [:],
-                        questions: questions,
-                        options: options
-                    )
-                }
-
-                let latest = completed.first.map(scores)
+                let latest = completed.first.map(scoreData.scores(for:))
                 var delta: Int? = nil
                 if let latest, completed.count >= 2 {
-                    delta = ScoringService.total(latest) - ScoringService.total(scores(completed[1]))
+                    delta = ScoringService.total(latest)
+                        - ScoringService.total(scoreData.scores(for: completed[1]))
                 }
 
                 return TeamHealth(

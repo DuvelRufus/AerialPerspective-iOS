@@ -29,17 +29,6 @@ class OpenActionsStore {
     var isLoading = false
     var error: Error? = nil
 
-    private struct AssessmentRef: Decodable {
-        let id: UUID
-        let projectId: UUID
-        let version: Int
-
-        enum CodingKeys: String, CodingKey {
-            case id, version
-            case projectId = "project_id"
-        }
-    }
-
     /// Fixed query count regardless of team count — no N+1: one query for
     /// ALL open actions (state != 'done', the source-of-truth column; the
     /// legacy status column stays untouched until R5), plus the same
@@ -114,60 +103,9 @@ class OpenActionsStore {
         }
     }
 
-    /// Domain scores of each project's latest COMPLETED assessment
-    /// (answered count >= question count, highest version) — the same
-    /// batched derivation HealthOverviewStore.load performs.
+    /// Domain scores of each project's latest COMPLETED assessment, via the
+    /// shared AssessmentScoresLoader (paginated answers included).
     private func latestScores(questionStore: QuestionStore) async throws -> [UUID: [DomainScore]] {
-        if questionStore.questions.isEmpty {
-            await questionStore.fetch()
-        }
-        let questions = questionStore.questions
-        let options = questionStore.options
-        let questionCount = questions.count
-        guard questionCount > 0 else { return [:] }
-
-        let assessments: [AssessmentRef] = try await supabase
-            .from("assessments")
-            .select("id, project_id, version")
-            .execute()
-            .value
-        guard !assessments.isEmpty else { return [:] }
-
-        var answersByAssessment: [UUID: [UUID: UUID]] = [:]
-        let assessmentIds = assessments.map { $0.id.uuidString }
-        // PostgREST caps a response at 1000 rows silently — page until a
-        // short page marks the end. Ordered so page windows stay disjoint.
-        let pageSize = 1000
-        var offset = 0
-        while true {
-            let page: [Answer] = try await supabase
-                .from("answers")
-                .select()
-                .in("assessment_id", values: assessmentIds)
-                .order("id", ascending: true)
-                .range(from: offset, to: offset + pageSize - 1)
-                .execute()
-                .value
-            for row in page {
-                guard let optionId = row.answerOptionId else { continue }
-                answersByAssessment[row.assessmentId, default: [:]][row.questionId] = optionId
-            }
-            if page.count < pageSize { break }
-            offset += pageSize
-        }
-
-        var scoresByProject: [UUID: [DomainScore]] = [:]
-        for (projectId, refs) in Dictionary(grouping: assessments, by: { $0.projectId }) {
-            let latestCompleted = refs
-                .filter { (answersByAssessment[$0.id]?.count ?? 0) >= questionCount }
-                .max { $0.version < $1.version }
-            guard let latestCompleted else { continue }
-            scoresByProject[projectId] = ScoringService.compute(
-                answers: answersByAssessment[latestCompleted.id] ?? [:],
-                questions: questions,
-                options: options
-            )
-        }
-        return scoresByProject
+        try await AssessmentScoresLoader.load(questionStore: questionStore).latestScoresByProject()
     }
 }

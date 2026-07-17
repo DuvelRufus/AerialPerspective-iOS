@@ -43,7 +43,7 @@ Om arbetsträdet har ocommittad kod vid sessionsstart: påtala det och fråga om
 Håll denna korta lista uppdaterad när vi medvetet skjuter upp något. Ta bort poster när de åtgärdas.
 
 - **DocumentView score-spinner vid segment-byte.** DocumentView räknar om assessment-scores vid varje byte och gatar body på isLoading, så domänkorten blinkar bakom en spinner vid segment-byte. Actions delas redan via lyft ActionStore, men score-kontexten gör det inte. Fix om det skaver: lyft assessment-kontext till ProjectTabView, eller rendera åtgärdskort innan scores resolvar.
-- **OpenActionsStore dubblerar HealthOverviewStores datalast på Översikt.** Teknisk skuld: OpenActionsStore.latestScores kör egna projects+assessments+answers-queries och egen scoring — samma arbete HealthOverviewStore.load redan gör vid Översikt-mount. Väg B: låt OpenActionsStore konsumera ett scoresByProject från HealthOverviewStore i stället för att räkna om. Sparad när väg A (parallellisering + paginering) valdes för refresh-timeout-fixen.
+- **OpenActionsStore + HealthOverviewStore kör var sin AssessmentScoresLoader.load på Översikt.** Koden är delad (väg B:s kod-dubblering är stängd via AssessmentScoresLoader), men båda stores anropar loadern separat — projects+assessments+answers hämtas fortfarande två gånger per Översikt-besök. Kvarvarande rest: dela resultatet (en laddning, två konsumenter), inte bara koden.
 
 ---
 
