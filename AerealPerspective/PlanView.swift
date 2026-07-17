@@ -276,7 +276,10 @@ struct PlanView: View {
     // MARK: - Add task
 
     private var addButton: some View {
+        // Haptic fires in the action closure — a stacked .haptic gesture
+        // starves ButtonStyle's isPressed and kills the press feedback.
         Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             showAddSheet = true
         } label: {
             Image(systemName: "plus")
@@ -284,10 +287,8 @@ struct PlanView: View {
                 .foregroundStyle(.white)
                 .frame(width: 56, height: 56)
                 .background(Circle().fill(Color.apOrange))
-                .shadow(color: Color.apOrange.opacity(0.4), radius: 12, y: 4)
         }
         .buttonStyle(APFabPressStyle())
-        .haptic(.medium)
     }
 
     /// Default for the sheet's domain picker: the current weakest domain.
@@ -1033,12 +1034,21 @@ struct PlanView: View {
     }
 }
 
-/// Standard FAB press: scale 0.97 with a quick spring.
+/// FAB press, the APRowPressStyle pattern: reads isPressed only — no
+/// stacked gesture can swallow the press state. One shadow carries both
+/// the resting elevation glow and the press glow, so the two states are
+/// a single animated transition.
 private struct APFabPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .brightness(configuration.isPressed ? 0.04 : 0)
+            .shadow(
+                color: Color.apOrange.opacity(configuration.isPressed ? 0.55 : 0.25),
+                radius: configuration.isPressed ? 16 : 10,
+                y: 4
+            )
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
