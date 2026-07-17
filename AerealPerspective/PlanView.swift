@@ -119,8 +119,14 @@ struct PlanView: View {
 
     private var deleteMessage: String {
         switch pendingDelete {
-        case .action: return "Uppgiften tas bort permanent. Åtgärden kan inte ångras."
-        default:      return "Åtgärden tas bort ur planen. En kopplad uppgift ligger kvar under Åtgärder."
+        case .action:
+            return "Uppgiften tas bort permanent. Åtgärden kan inte ångras."
+        case .plan(let item):
+            return linkedAction(item) != nil
+                ? "Åtgärden och dess kopplade uppgift tas bort permanent. Det kan inte ångras."
+                : "Åtgärden tas bort ur planen. Det kan inte ångras."
+        case nil:
+            return ""
         }
     }
 
@@ -486,17 +492,36 @@ struct PlanView: View {
     }
 
     private func deleteFromPlan(_ item: PlanItem) {
+        // Capture the link BEFORE the optimistic removal — the lookup reads
+        // live store state that later steps mutate.
+        let linked = linkedAction(item)
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
             _ = items.remove(at: index)
         }
         Task {
+            // A linked action is hard-deleted FIRST: once it is gone from the
+            // DB, neither the FK's SET NULL nor any refetch can resurrect it
+            // as an unlinked row. ActionStore.delete swallows its error and
+            // rolls its array back — failure is detected by reappearance.
+            if let linked {
+                await actionStore.delete(linked)
+                if actionStore.actions.contains(where: { $0.id == linked.id }) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        items.insert(item, at: min(index, items.count))
+                    }
+                    errorMessage = "Kunde inte ta bort uppgiften. Försök igen."
+                    return
+                }
+            }
             do {
                 try await planStore.deletePlanAction(item.id)
-                // The FK nulled any linked task's plan_action_id server-side;
-                // refetch so the in-memory link doesn't go stale.
+                // Safe by ordering: a linked action was deleted from the DB
+                // above, so this refetch cannot re-import it.
                 await actionStore.fetch(projectId: project.id)
             } catch {
+                // The plan row survived; an already-deleted linked action is
+                // gone for good — the row returns as an unlinked plan item.
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                     items.insert(item, at: min(index, items.count))
                 }
