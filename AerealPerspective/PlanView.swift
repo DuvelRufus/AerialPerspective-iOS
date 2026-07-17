@@ -75,6 +75,7 @@ struct PlanView: View {
     @State private var isLoading = true
     @State private var isGenerating = false
     @State private var errorMessage: String? = nil
+    @State private var showAddSheet = false
 
     var body: some View {
         ZStack {
@@ -107,6 +108,11 @@ struct PlanView: View {
             Button("Avbryt", role: .cancel) { pendingDelete = nil }
         } message: {
             Text(deleteMessage)
+        }
+        .sheet(isPresented: $showAddSheet) {
+            AddTaskSheet(defaultDomain: weakestDomain) { domain, title in
+                Task { await addManualAction(domain: domain, title: title) }
+            }
         }
     }
 
@@ -256,6 +262,57 @@ struct PlanView: View {
             actionStore.error = nil
             await actionStore.fetch(projectId: project.id)
             await load()
+        }
+        // Sibling layer on the ScrollView — outside the section VStack, so
+        // the sectionSignature animation subtree is untouched. Only exists
+        // while the plan shows, which guarantees sourceAssessment != nil.
+        .overlay(alignment: .bottomTrailing) {
+            addButton
+                .padding(.trailing, 20)
+                .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Add task
+
+    private var addButton: some View {
+        Button {
+            showAddSheet = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(Circle().fill(Color.apOrange))
+                .shadow(color: Color.apOrange.opacity(0.4), radius: 12, y: 4)
+        }
+        .buttonStyle(APFabPressStyle())
+        .haptic(.medium)
+    }
+
+    /// Default for the sheet's domain picker: the current weakest domain.
+    private var weakestDomain: Domain {
+        domainScores.min { $0.score < $1.score }?.domain
+            ?? Domain.allCases.first
+            ?? .team
+    }
+
+    /// Manual creation, moved here from Åtgärder (phase 1b). No planActionId
+    /// — the row lands as an unlinked open action, rendered by the .action
+    /// branch. add inserts into the shared store's array, so makeSections
+    /// picks it up without a refetch.
+    private func addManualAction(domain: Domain, title: String) async {
+        do {
+            try await actionStore.add(
+                projectId: project.id,
+                domain: domain.rawValue,
+                title: title,
+                assessmentId: sourceAssessment?.id,
+                createdFromScore: domainScores.first { $0.domain == domain }?.score
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            print("PlanView: addManualAction error: \(error)")
         }
     }
 
@@ -973,5 +1030,106 @@ struct PlanView: View {
             payload.append(CurrentPlanAction(key: key, phase: row.phase, text: row.text, domain: row.domain))
         }
         return (payload, keyMap)
+    }
+}
+
+/// Standard FAB press: scale 0.97 with a quick spring.
+private struct APFabPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Add Task Sheet
+
+/// Manual task creation (phase 1b, moved from Åtgärder): domain chips with
+/// the weakest domain preselected, plus a free-text title. Same sheet shell
+/// and trim validation as Åtgärder's AddActionSheet.
+private struct AddTaskSheet: View {
+    let defaultDomain: Domain
+    let onSave: (Domain, String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var selected: Domain
+
+    init(defaultDomain: Domain, onSave: @escaping (Domain, String) -> Void) {
+        self.defaultDomain = defaultDomain
+        self.onSave = onSave
+        _selected = State(initialValue: defaultDomain)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.apBackground.ignoresSafeArea()
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "DOMÄN")
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+                            ForEach(Domain.allCases, id: \.self) { domain in
+                                domainChip(domain)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "ÅTGÄRD")
+                        TextField("", text: $title)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
+                    APPillButton(title: "Spara", action: {
+                        let trimmed = title.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty else { return }
+                        onSave(selected, trimmed)
+                        dismiss()
+                    })
+                    .opacity(isDisabled ? 0.5 : 1)
+                    .disabled(isDisabled)
+
+                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationTitle("Ny uppgift")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+            .toolbarBackground(Color.apBackground, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func domainChip(_ domain: Domain) -> some View {
+        Button {
+            selected = domain
+        } label: {
+            Text(domain.rawValue)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(selected == domain ? .white : Color.apTextSecondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(
+                    Capsule().fill(selected == domain ? Color.apOrange : Color.apSurface)
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        selected == domain ? Color.clear : Color.apHairline,
+                        lineWidth: 0.5
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .haptic(.light)
     }
 }
