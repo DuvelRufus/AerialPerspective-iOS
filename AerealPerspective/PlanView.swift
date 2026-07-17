@@ -539,9 +539,9 @@ struct PlanView: View {
 
     private func itemRow(_ item: PlanItem) -> some View {
         // Prio/Vänta write the linked action's state, creating the link when
-        // none exists. Ta bort removes the plan_actions row (plan curation)
-        // behind a confirm — a linked task survives in Åtgärder via the
-        // FK's SET NULL. Klar stays on the circle tap.
+        // none exists. Ta bort deletes the plan_actions row AND its linked
+        // action behind a confirm (deleteFromPlan) — gone means gone.
+        // Klar stays on the circle tap.
         rowContent(item)
             .apSwipeActions(id: item.id, openId: $openSwipeId, actions: [
                 APSwipeAction(title: "Prio", systemImage: "flag.fill", color: .apOrange) {
@@ -1098,9 +1098,8 @@ private struct APFabPressStyle: ButtonStyle {
 
 // MARK: - Add Task Sheet
 
-/// Manual task creation (phase 1b, moved from Åtgärder): domain chips with
-/// the weakest domain preselected, plus a free-text title. Same sheet shell
-/// and trim validation as Åtgärder's AddActionSheet.
+/// Manual task creation: domain chips with the weakest domain preselected,
+/// plus a trim-validated free-text title.
 private struct AddTaskSheet: View {
     let defaultDomain: Domain
     let onSave: (Domain, String) -> Void

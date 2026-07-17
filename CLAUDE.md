@@ -42,7 +42,6 @@ Om arbetsträdet har ocommittad kod vid sessionsstart: påtala det och fråga om
 
 Håll denna korta lista uppdaterad när vi medvetet skjuter upp något. Ta bort poster när de åtgärdas.
 
-- **DocumentView score-spinner vid segment-byte.** DocumentView räknar om assessment-scores vid varje byte och gatar body på isLoading, så domänkorten blinkar bakom en spinner vid segment-byte. Actions delas redan via lyft ActionStore, men score-kontexten gör det inte. Fix om det skaver: lyft assessment-kontext till ProjectTabView, eller rendera åtgärdskort innan scores resolvar.
 - **OpenActionsStore + HealthOverviewStore kör var sin AssessmentScoresLoader.load på Översikt.** Koden är delad (väg B:s kod-dubblering är stängd via AssessmentScoresLoader), men båda stores anropar loadern separat — projects+assessments+answers hämtas fortfarande två gånger per Översikt-besök. Kvarvarande rest: dela resultatet (en laddning, två konsumenter), inte bara koden.
 
 ---
@@ -75,7 +74,7 @@ open AerealPerspective.xcodeproj
 
 ## Backend (Supabase) — important
 
-The app talks directly to a hosted Supabase project via a global client in `SupabaseConfig.swift` (`let supabase = SupabaseClient(...)`, anon key inlined). Tables accessed: `projects`, `assessments`, `questions`, `answer_options`, `answers`, `insights`, `actions`, plus decision/link/note tables used by `DocumentView.swift`.
+The app talks directly to a hosted Supabase project via a global client in `SupabaseConfig.swift` (`let supabase = SupabaseClient(...)`, anon key inlined). Tables accessed: `projects`, `assessments`, `questions`, `answer_options`, `answers`, `insights`, `actions`, `plans`/`plan_actions`, plus the `documents` table used by `NoteStore` (`OvrigtView`).
 
 The two AI **edge functions live only in the Supabase dashboard, not in this repo** (there is no `supabase/` directory):
 - `generate-insights` → returns `{"insights": [{title, body, risk_level, domain, suggested_action}]}`
@@ -91,7 +90,7 @@ They call Claude (Swedish prompts). When backend changes are needed, **print the
 
 **Navigation:**
 - `RootTabView` — two tabs: Projekt (`ProjectListView`) and Översikt (`OversiktView`).
-- `ProjectListView` → `ProjectTabView` (a project) → segmented control over three sections: `AssessmentListView` (Assessments), `PlanView` (Plan), `DocumentView` (Åtgärder/actions + decisions/links/notes).
+- `ProjectListView` → `ProjectTabView` (a project) → segmented control over three sections: `AssessmentListView` (Assessments), `PlanView` (Plan — the app's single task surface: plan-linked, insight-created and manual tasks), `OvrigtView` (Övrigt).
 
 **Stores** (all in `AerealPerspective/`, `*Store.swift`): `AuthStore`, `ProjectStore`, `QuestionStore` (fetches `questions` + `answer_options` once at app start), `AssessmentStore` (versioned assessments per project), `AnswerStore` (`[questionId: answerOptionId]` map), `InsightStore`, `ActionStore`.
 
@@ -110,7 +109,7 @@ They call Claude (Swedish prompts). When backend changes are needed, **print the
 - New store: `@MainActor @Observable class`, expose `var ... = []`, `isLoading`, optional `error`; do Supabase calls in `do/catch` (most stores currently just `print` errors).
 - Use the shared global `supabase` client; never construct a new one.
 - Styling goes through `DesignSystem.swift` (colors like `Color.apOrange`, `.apBackground`, `.apTextPrimary`, `.apSurface`, `.apHairline`). Don't hardcode colors.
-- `DocumentView.swift` and `ProjectTabView.swift` live at the repo root (not under `AerealPerspective/`) but are part of the target — keep them where they are unless re-grouping in Xcode.
+- `ProjectTabView.swift` lives at the repo root (not under `AerealPerspective/`) but is part of the target — unlike the synced `AerealPerspective/` folder it is explicitly referenced in project.pbxproj, so keep it where it is unless re-grouping in Xcode.
 
 ## Gotchas / hard-won lessons
 

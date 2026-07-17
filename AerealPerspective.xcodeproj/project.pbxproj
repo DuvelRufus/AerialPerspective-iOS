@@ -9,13 +9,11 @@
 /* Begin PBXBuildFile section */
 		30A3AB672FBB655D004790CB /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 30A3AB662FBB655D004790CB /* Supabase */; };
 		30B05C7C2FC6E2D800C6E042 /* ProjectTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B05C7B2FC6E2D800C6E042 /* ProjectTabView.swift */; };
-		30B05C7E2FC6E2E900C6E042 /* DocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B05C7D2FC6E2E900C6E042 /* DocumentView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		30A3AB572FBB64A0004790CB /* AerealPerspective.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AerealPerspective.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		30B05C7B2FC6E2D800C6E042 /* ProjectTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectTabView.swift; sourceTree = "<group>"; };
-		30B05C7D2FC6E2E900C6E042 /* DocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -44,7 +42,6 @@
 				30A3AB592FBB64A0004790CB /* AerealPerspective */,
 				30A3AB582FBB64A0004790CB /* Products */,
 				30B05C7B2FC6E2D800C6E042 /* ProjectTabView.swift */,
-				30B05C7D2FC6E2E900C6E042 /* DocumentView.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -135,7 +132,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				30B05C7C2FC6E2D800C6E042 /* ProjectTabView.swift in Sources */,
-				30B05C7E2FC6E2E900C6E042 /* DocumentView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -18,8 +18,7 @@ struct ProjectTabView: View {
     private enum Section: Int {
         case assessments = 0
         case plan = 1
-        case actions = 2
-        case ovrigt = 3
+        case ovrigt = 2
     }
 
     /// initialSection is a raw Section value (0 = Assessments, 1 = Plan …);
@@ -34,7 +33,7 @@ struct ProjectTabView: View {
         ZStack {
             Color.apBackground.ignoresSafeArea()
             VStack(spacing: 0) {
-                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Plan", "Åtgärder", "Övrigt"])
+                APSegmentedControl(selection: $selectedSection, options: ["Assessments", "Plan", "Övrigt"])
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 4)
@@ -44,8 +43,6 @@ struct ProjectTabView: View {
                     AssessmentListView(project: project, questionStore: questionStore)
                 case .plan:
                     PlanView(project: project, questionStore: questionStore, actionStore: actionStore)
-                case .actions:
-                    DocumentView(project: project, questionStore: questionStore, actionStore: actionStore)
                 case .ovrigt:
                     OvrigtView(project: project, noteStore: noteStore)
                 }
