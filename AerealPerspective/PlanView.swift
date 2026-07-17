@@ -44,6 +44,10 @@ struct PlanView: View {
 
     // Source assessment context
     @State private var sourceAssessment: Assessment? = nil
+    /// The team's newest assessment regardless of plan — FAB fallback and
+    /// plan-less context that must survive load()'s scope. sourceAssessment
+    /// keeps meaning "the plan's source" and gates the plan artifacts.
+    @State private var latestAssessment: Assessment? = nil
     /// Built once per load() — from plan_actions rows, or from the legacy
     /// JSONB fallback. Non-empty exactly when sourceAssessment != nil.
     @State private var items: [PlanItem] = []
@@ -152,11 +156,21 @@ struct PlanView: View {
             APGeneratingState(phrases: Self.generationPhrases)
         } else if isLoading {
             loadingState("Laddar plan...")
-        } else if sourceAssessment != nil {
+        } else if sourceAssessment != nil || hasAnyRows {
+            // Plan is a task view: any row (plan-linked or unlinked) shows
+            // the list. The sourceAssessment side keeps the emptied-plan
+            // corner intact — an active plan with zero rows still shows the
+            // header and the regenerate button.
             todoList
         } else {
             emptyState
         }
+    }
+
+    /// Cheap row-existence check — no makeSections cost: any plan item or
+    /// any unlinked action makes the task list worth showing.
+    private var hasAnyRows: Bool {
+        !items.isEmpty || actionStore.actions.contains { $0.planActionId == nil }
     }
 
     private func loadingState(_ label: String) -> some View {
@@ -176,12 +190,13 @@ struct PlanView: View {
             Image(systemName: "calendar.badge.clock")
                 .font(.system(size: 48))
                 .foregroundStyle(.apOrange)
-            Text("Ingen plan ännu")
+            Text("Inga tasks ännu")
                 .foregroundStyle(.apTextPrimary)
                 .font(.headline)
-            // Första planen genereras automatiskt när en assessment
-            // slutförs (ResultView) — ingen manuell trigger här.
-            Text("Slutför en assessment så skapas planen automatiskt.")
+            // Första planen genereras fortfarande automatiskt när en
+            // assessment slutförs (ResultView) — härifrån skapas tasks
+            // via insikter eller FAB:en.
+            Text("Skapa tasks från insikter eller lägg till egna med plusknappen.")
                 .font(.subheadline)
                 .foregroundStyle(.apTextSecondary)
                 .multilineTextAlignment(.center)
@@ -194,6 +209,14 @@ struct PlanView: View {
             }
         }
         .padding(.horizontal, 32)
+        // Anchor to the screen corner, not the centered VStack, so the
+        // first manual task can be created from the empty state too.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottomTrailing) {
+            addButton
+                .padding(.trailing, 20)
+                .padding(.bottom, 24)
+        }
     }
 
     // MARK: - To-do list
@@ -264,8 +287,8 @@ struct PlanView: View {
             await load()
         }
         // Sibling layer on the ScrollView — outside the section VStack, so
-        // the sectionSignature animation subtree is untouched. Only exists
-        // while the plan shows, which guarantees sourceAssessment != nil.
+        // the sectionSignature animation subtree is untouched. Shows with or
+        // without a plan; addManualAction falls back to latestAssessment.
         .overlay(alignment: .bottomTrailing) {
             addButton
                 .padding(.trailing, 20)
@@ -308,7 +331,9 @@ struct PlanView: View {
                 projectId: project.id,
                 domain: domain.rawValue,
                 title: title,
-                assessmentId: sourceAssessment?.id,
+                // Plan-less teams tie the task to the newest assessment;
+                // nil (no assessments at all) is allowed by add.
+                assessmentId: sourceAssessment?.id ?? latestAssessment?.id,
                 createdFromScore: domainScores.first { $0.domain == domain }?.score
             )
         } catch {
@@ -924,6 +949,7 @@ struct PlanView: View {
         }
 
         let byNewest = assessmentStore.assessments.sorted { $0.version > $1.version }
+        latestAssessment = byNewest.first
 
         // Primary source: the active plans row of the newest assessment that
         // has one.
@@ -944,12 +970,30 @@ struct PlanView: View {
             await loadScores(for: source)
         } else {
             // No plan anywhere: first generation happens automatically when
-            // an assessment is completed (ResultView), never from here.
+            // an assessment is completed (ResultView), never from here. The
+            // task list still shows any unlinked actions, so scores come
+            // from the plan-less fallback.
             sourceAssessment = nil
             items = []
+            await loadFallbackScores()
         }
 
         isLoading = false
+    }
+
+    /// Plan-less path: domainScores from the team's latest COMPLETED
+    /// assessment via the shared loader, filtered to this project. No
+    /// completed assessment → [] (urgency Int.max, plain pills — degrades,
+    /// never crashes).
+    private func loadFallbackScores() async {
+        do {
+            let data = try await AssessmentScoresLoader.load(questionStore: questionStore)
+            domainScores = data.completedByProject[project.id]?.first
+                .map(data.scores(for:)) ?? []
+        } catch {
+            domainScores = []
+            print("PlanView: loadFallbackScores error: \(error)")
+        }
     }
 
     /// Loads answers for `assessment` and computes its domain scores. The
