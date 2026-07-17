@@ -240,11 +240,11 @@ struct PlanView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            // Spring rows between sections when a state changes (swipe
-            // Prio/Vänta, circle Klar) — keyed to the store, which is where
-            // the optimistic flips land.
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: actionStore.actions)
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: pendingPlanIds)
+            // Spring rows between sections when membership changes (swipe
+            // Prio/Vänta, circle Klar) — keyed to section membership, not the
+            // store array, so in-place mutations and refetch value-diffs
+            // can't re-animate rows under an in-flight swipe gesture.
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: sectionSignature(sections))
         }
         .refreshable {
             actionStore.error = nil
@@ -333,6 +333,22 @@ struct PlanView: View {
         sections.waiting = sortedByUrgency(sections.waiting)
         sections.done = sortedByUrgency(sections.done)
         return sections
+    }
+
+    /// Animation key for the section VStack: row ids grouped per section in
+    /// render order. Changes exactly when a row moves section, appears,
+    /// disappears, or reorders — NOT when an action's fields mutate in place
+    /// or a refetch replaces the array with membership-equal rows, so an
+    /// array-wide animation can never fire under an active swipe drag.
+    /// pendingPlanIds is covered too: itemState reads it, so an optimistic
+    /// done-flip moves the row and thereby the signature.
+    private func sectionSignature(_ sections: PlanSections) -> [[UUID]] {
+        [
+            sections.prio.map(\.id),
+            sections.open.map(\.id),
+            sections.waiting.map(\.id),
+            sections.done.map(\.id)
+        ]
     }
 
     private func planSection(title: String, tint: Color?, list: [PlanRow]) -> some View {
