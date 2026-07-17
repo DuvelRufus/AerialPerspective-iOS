@@ -21,6 +21,22 @@ private struct PlanItem: Identifiable {
     let order: Int           // original flat index, for stable sorting
 }
 
+/// One row in the unified list: a plan_actions item (possibly with a
+/// linked action) or an unlinked action (manual / insight-created).
+/// The id spaces are disjoint — plan_actions.id vs actions.id — so a
+/// single UUID identity is safe for ForEach/swipe/confirm state.
+private enum PlanRow: Identifiable {
+    case planItem(PlanItem)
+    case action(ProjectAction)
+
+    var id: UUID {
+        switch self {
+        case .planItem(let item): return item.id
+        case .action(let action): return action.id
+        }
+    }
+}
+
 struct PlanView: View {
     var project: Project
     var questionStore: QuestionStore
@@ -38,14 +54,19 @@ struct PlanView: View {
     @State private var showReplaceConfirm = false
 
     // Row state
-    /// The plan item whose swipe actions are revealed, if any.
+    /// The row whose swipe actions are revealed, if any.
     @State private var openSwipeId: UUID? = nil
     // Section expansion: waiting is deliberately-deferred ACTIVE work and
     // stays visible by default; only finished work starts collapsed.
     @State private var waitingExpanded = true
     @State private var doneExpanded = false
-    /// The plan item awaiting the "Ta bort ur planen?" confirmation.
-    @State private var pendingPlanDelete: PlanItem? = nil
+    /// What the delete confirm operates on: a plan item (SET NULL — a
+    /// linked task survives) or an unlinked action (hard delete).
+    private enum PendingDelete {
+        case plan(PlanItem)
+        case action(ProjectAction)
+    }
+    @State private var pendingDelete: PendingDelete? = nil
     /// Plan item ids whose done-marked action is being inserted — renders as
     /// done before the row lands in actionStore.actions.
     @State private var pendingPlanIds: Set<UUID> = []
@@ -65,22 +86,41 @@ struct PlanView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .task { await load() }
         .confirmationDialog(
-            "Ta bort ur planen?",
+            deleteTitle,
             isPresented: Binding(
-                get: { pendingPlanDelete != nil },
-                set: { if !$0 { pendingPlanDelete = nil } }
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
             ),
             titleVisibility: .visible
         ) {
             Button("Ta bort", role: .destructive) {
-                guard let item = pendingPlanDelete else { return }
+                guard let intent = pendingDelete else { return }
                 UINotificationFeedbackGenerator().notificationOccurred(.warning)
-                pendingPlanDelete = nil
-                deleteFromPlan(item)
+                pendingDelete = nil
+                switch intent {
+                case .plan(let item):
+                    deleteFromPlan(item)
+                case .action(let action):
+                    Task { await actionStore.delete(action) }
+                }
             }
-            Button("Avbryt", role: .cancel) { pendingPlanDelete = nil }
+            Button("Avbryt", role: .cancel) { pendingDelete = nil }
         } message: {
-            Text("Åtgärden tas bort ur planen. En kopplad uppgift ligger kvar under Åtgärder.")
+            Text(deleteMessage)
+        }
+    }
+
+    private var deleteTitle: String {
+        switch pendingDelete {
+        case .action: return "Ta bort uppgift?"
+        default:      return "Ta bort ur planen?"
+        }
+    }
+
+    private var deleteMessage: String {
+        switch pendingDelete {
+        case .action: return "Uppgiften tas bort permanent. Åtgärden kan inte ångras."
+        default:      return "Åtgärden tas bort ur planen. En kopplad uppgift ligger kvar under Åtgärder."
         }
     }
 
@@ -148,7 +188,9 @@ struct PlanView: View {
 
     private var todoList: some View {
         let sections = makeSections()
-        let total = items.count
+        // Both row kinds count — the header tracks the whole unified list.
+        let total = sections.prio.count + sections.open.count
+            + sections.waiting.count + sections.done.count
         let done = sections.done.count
 
         return ScrollView {
@@ -214,10 +256,19 @@ struct PlanView: View {
     // MARK: - Sections
 
     private struct PlanSections {
-        var prio: [PlanItem] = []
-        var open: [PlanItem] = []
-        var waiting: [PlanItem] = []
-        var done: [PlanItem] = []
+        var prio: [PlanRow] = []
+        var open: [PlanRow] = []
+        var waiting: [PlanRow] = []
+        var done: [PlanRow] = []
+
+        mutating func append(_ row: PlanRow, state: TaskState) {
+            switch state {
+            case .prio:    prio.append(row)
+            case .open:    open.append(row)
+            case .waiting: waiting.append(row)
+            case .done:    done.append(row)
+            }
+        }
     }
 
     private func itemState(_ item: PlanItem) -> TaskState {
@@ -235,24 +286,47 @@ struct PlanView: View {
         return score
     }
 
-    private func sortedByUrgency(_ list: [PlanItem]) -> [PlanItem] {
+    /// The same urgency key for both row kinds: the current score of the
+    /// row's domain; unresolvable sorts last.
+    private func rowUrgency(_ row: PlanRow) -> Int {
+        switch row {
+        case .planItem(let item):
+            return urgency(item)
+        case .action(let action):
+            guard let domain = Domain(caseInsensitive: action.domain),
+                  let score = domainScores.first(where: { $0.domain == domain })?.score
+            else { return Int.max }
+            return score
+        }
+    }
+
+    private func sortedByUrgency(_ list: [PlanRow]) -> [PlanRow] {
         list.sorted { a, b in
-            let ua = urgency(a)
-            let ub = urgency(b)
+            let ua = rowUrgency(a)
+            let ub = rowUrgency(b)
             if ua != ub { return ua < ub }
-            return a.order < b.order
+            // Ties: plan items keep their flat plan order; unlinked actions
+            // have no plan order and break newest-first (as the global Tasks
+            // lens); mixed pairs put the plan item first — plan rows are
+            // the spine of the list.
+            switch (a, b) {
+            case (.planItem(let x), .planItem(let y)): return x.order < y.order
+            case (.action(let x), .action(let y)):     return x.createdAt > y.createdAt
+            case (.planItem, .action):                 return true
+            case (.action, .planItem):                 return false
+            }
         }
     }
 
     private func makeSections() -> PlanSections {
         var sections = PlanSections()
         for item in items {
-            switch itemState(item) {
-            case .prio:    sections.prio.append(item)
-            case .open:    sections.open.append(item)
-            case .waiting: sections.waiting.append(item)
-            case .done:    sections.done.append(item)
-            }
+            sections.append(.planItem(item), state: itemState(item))
+        }
+        // Unlinked actions (manual / insight-created); a linked action is
+        // already owned by its plan item above, so no row can double.
+        for action in actionStore.actions where action.planActionId == nil {
+            sections.append(.action(action), state: action.taskState)
         }
         sections.prio = sortedByUrgency(sections.prio)
         sections.open = sortedByUrgency(sections.open)
@@ -261,7 +335,7 @@ struct PlanView: View {
         return sections
     }
 
-    private func planSection(title: String, tint: Color?, list: [PlanItem]) -> some View {
+    private func planSection(title: String, tint: Color?, list: [PlanRow]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.caption)
@@ -271,7 +345,7 @@ struct PlanView: View {
         }
     }
 
-    private func collapsibleSection(title: String, countTint: Color, list: [PlanItem], expanded: Binding<Bool>) -> some View {
+    private func collapsibleSection(title: String, countTint: Color, list: [PlanRow], expanded: Binding<Bool>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -305,10 +379,10 @@ struct PlanView: View {
         }
     }
 
-    private func itemCard(_ list: [PlanItem]) -> some View {
+    private func itemCard(_ list: [PlanRow]) -> some View {
         VStack(spacing: 0) {
-            ForEach(Array(list.enumerated()), id: \.element.id) { index, item in
-                itemRow(item)
+            ForEach(Array(list.enumerated()), id: \.element.id) { index, row in
+                rowView(row)
                 if index != list.count - 1 {
                     Divider().background(Color.apHairline)
                 }
@@ -350,6 +424,14 @@ struct PlanView: View {
         }
     }
 
+    @ViewBuilder
+    private func rowView(_ row: PlanRow) -> some View {
+        switch row {
+        case .planItem(let item): itemRow(item)
+        case .action(let action): actionRow(action)
+        }
+    }
+
     private func itemRow(_ item: PlanItem) -> some View {
         // Prio/Vänta write the linked action's state, creating the link when
         // none exists. Ta bort removes the plan_actions row (plan curation)
@@ -364,7 +446,25 @@ struct PlanView: View {
                     setLinkedState(item, to: .waiting)
                 },
                 APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
-                    pendingPlanDelete = item
+                    pendingDelete = .plan(item)
+                }
+            ])
+    }
+
+    /// Unlinked action row (manual / insight-created). Prio/Vänta write the
+    /// action's OWN state — never create a linked action — and Ta bort is a
+    /// hard delete behind its own confirm (no plan_actions row to SET NULL).
+    private func actionRow(_ action: ProjectAction) -> some View {
+        actionRowContent(action)
+            .apSwipeActions(id: action.id, openId: $openSwipeId, actions: [
+                APSwipeAction(title: "Prio", systemImage: "flag.fill", color: .apOrange) {
+                    Task { await actionStore.setState(action, to: .prio) }
+                },
+                APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
+                    Task { await actionStore.setState(action, to: .waiting) }
+                },
+                APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
+                    pendingDelete = .action(action)
                 }
             ])
     }
@@ -448,6 +548,86 @@ struct PlanView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .opacity(done ? 0.6 : 1)
+    }
+
+    /// Mirrors rowContent's template, reading title/domain/state from the
+    /// action itself instead of a plan item.
+    private func actionRowContent(_ action: ProjectAction) -> some View {
+        let done = action.isDone
+
+        return HStack(alignment: .top, spacing: 12) {
+            actionStatusCircle(action)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(action.title)
+                    .font(.subheadline)
+                    .strikethrough(done)
+                    .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
+                    .multilineTextAlignment(.leading)
+                if let domain = Domain(caseInsensitive: action.domain) {
+                    HStack(spacing: 6) {
+                        if let score = domainScores.first(where: { $0.domain == domain })?.score {
+                            Text(domain.rawValue)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Color.apScore(score))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.apScore(score).opacity(0.15))
+                                .clipShape(Capsule())
+                        } else {
+                            // No score for the domain: plain, no pill.
+                            Text(domain.rawValue)
+                                .font(.caption)
+                                .foregroundStyle(Color.apTextTertiary)
+                        }
+                        if let tag = actionStateTag(action) {
+                            Text(tag.word)
+                                .font(.caption)
+                                .foregroundStyle(tag.color)
+                        }
+                    }
+                } else if let tag = actionStateTag(action) {
+                    Text(tag.word)
+                        .font(.caption)
+                        .foregroundStyle(tag.color)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .opacity(done ? 0.6 : 1)
+    }
+
+    /// Toggles the action's own open<->done — never creates a linked action.
+    private func actionStatusCircle(_ action: ProjectAction) -> some View {
+        Button {
+            Task { await actionStore.toggle(action) }
+        } label: {
+            Group {
+                if action.isDone {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.apStrong)
+                } else {
+                    Image(systemName: "circle")
+                        .foregroundStyle(.apTextTertiary)
+                }
+            }
+            .font(.title3)
+            .contentTransition(.symbolEffect(.replace))
+            .animation(.spring(response: 0.35, dampingFraction: 0.75), value: action.isDone)
+        }
+        .buttonStyle(.plain)
+        .haptic(.light)
+        .minTapTarget()
+    }
+
+    private func actionStateTag(_ action: ProjectAction) -> (word: String, color: Color)? {
+        switch action.taskState {
+        case .prio:    return ("Prio", Color.apOrange)
+        case .waiting: return ("Väntar", Color.apWaiting)
+        default:       return nil
+        }
     }
 
     private func statusCircle(_ item: PlanItem) -> some View {
