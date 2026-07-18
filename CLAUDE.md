@@ -123,3 +123,4 @@ They call Claude (Swedish prompts). When backend changes are needed, **print the
 - **Repo lives in `~/Developer`**, not `~/Desktop` (iCloud evacuation causes EPERM).
 - **Supabase projects created after 2026-05-30** need explicit GRANT SQL for public schema tables to be reachable by the authenticated role.
 - **`Color.` prefix is required in `.foregroundStyle()`** — SwiftUI can't infer custom Color extensions as ShapeStyle without it.
+- **SwiftUI gestures on transparent row areas need `.contentShape(Rectangle())`** — a gesture's hit area is the DRAWN pixels, not the layout frame; `.frame(maxWidth: .infinity)` makes a row wide but not hit-testable. A short-titled row was swipe-dead on its empty trailing half until apSwipeActions got a full-width contentShape (722023d). Any new gesture surface over sparse/transparent content needs the same.
