@@ -33,22 +33,33 @@ struct OversiktView: View {
             }
         }
         // Pinned above BOTH lenses: a safe-area inset sits outside the
-        // scroll geometry, so pull-to-refresh moves only the list and the
-        // spinner lands BELOW the segment instead of colliding with it.
-        // The apBackground plate matches the nav bar's toolbarBackground and
-        // occludes cards on overscroll.
+        // scroll geometry AND outside the system's large-title tracking, so
+        // pull/scroll can neither drag nor clip title or segment — only the
+        // list moves, and the refresh spinner lands below the block. Own
+        // title Text (system large-title metrics) since the nav bar is
+        // hidden on this root.
         .safeAreaInset(edge: .top, spacing: 0) {
-            APSegmentedControl(selection: $selectedLens, options: ["Team", "Tasks"])
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-                .background(Color.apBackground)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Översikt")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(.apTextPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                APSegmentedControl(selection: $selectedLens, options: ["Team", "Tasks"])
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The plate must reach the physical top now that the nav bar is
+            // gone — content stays inside the safe area (title never under
+            // the clock), only the background extends past it.
+            .background(Color.apBackground.ignoresSafeArea(edges: .top))
         }
-        .navigationTitle("Översikt")
-        .navigationBarTitleDisplayMode(.large)
+        // Tab root, never pushed — no back button exists; hiding the bar is
+        // per-view, so pushed ProjectTabView gets its own bar back.
+        .toolbar(.hidden, for: .navigationBar)
         .preferredColorScheme(.dark)
-        .toolbarBackground(Color.apBackground, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
         // On the stable ZStack, same lesson as ProjectListView: the
         // destination must stay mounted across lens/loading states.
         .navigationDestination(for: TeamPlanRoute.self) { route in
