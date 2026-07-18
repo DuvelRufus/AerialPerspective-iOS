@@ -17,9 +17,12 @@ struct AssessmentListView: View {
     @State private var isCreating = false
     @State private var createError: String? = nil
     @State private var answeredCounts: [UUID: Int] = [:]
-    /// Assessments that have at least one insights row — drives the
-    /// "Insikter" chip.
+    /// Assessments that have at least one insights row — distinguishes
+    /// "not generated" from "all handled" in the Insikter chip.
     @State private var insightAssessmentIds: Set<UUID> = []
+    /// assessmentId → insights without a matching action (variant C:
+    /// the orange "N att hantera" state).
+    @State private var unhandledInsightCounts: [UUID: Int] = [:]
     /// Assessments with an active plans row — drives the "Plan" chip.
     @State private var planAssessmentIds: Set<UUID> = []
     /// List-owned push for the INCOMPLETE path: zeroing this removes
@@ -41,7 +44,7 @@ struct AssessmentListView: View {
                     Task {
                         await assessmentStore.fetch(projectId: project.id)
                         await fetchAnsweredCounts()
-                        await fetchInsightIds()
+                        await fetchInsightStatus()
                         await fetchPlanIds()
                     }
                 }
@@ -67,7 +70,7 @@ struct AssessmentListView: View {
         .task {
             await assessmentStore.fetch(projectId: project.id)
             await fetchAnsweredCounts()
-            await fetchInsightIds()
+            await fetchInsightStatus()
             await fetchPlanIds()
         }
     }
@@ -140,7 +143,7 @@ struct AssessmentListView: View {
         .refreshable {
             await assessmentStore.fetch(projectId: project.id)
             await fetchAnsweredCounts()
-            await fetchInsightIds()
+            await fetchInsightStatus()
             await fetchPlanIds()
         }
     }
@@ -191,7 +194,7 @@ struct AssessmentListView: View {
                         // insights nor plan can be generated, and the
                         // progress line below carries the row's state.
                         HStack(spacing: 6) {
-                            generationChip("Insikter", generated: insightAssessmentIds.contains(assessment.id))
+                            insightChip(for: assessment)
                             generationChip("Plan", generated: planAssessmentIds.contains(assessment.id))
                         }
                         .padding(.top, 2)
@@ -203,6 +206,27 @@ struct AssessmentListView: View {
                 }
                 Spacer()
             }
+        }
+    }
+
+    /// Three-state Insikter chip: unhandled count (orange) → all handled
+    /// (green check, the plain generationChip) → not generated (dim outline).
+    @ViewBuilder
+    private func insightChip(for assessment: Assessment) -> some View {
+        let hasInsights = insightAssessmentIds.contains(assessment.id)
+        let unhandled = unhandledInsightCounts[assessment.id] ?? 0
+        if hasInsights && unhandled > 0 {
+            Text("\(unhandled) att hantera")
+                .font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(Color.apOrange)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Color.apOrange.opacity(0.15)))
+                .overlay(
+                    Capsule().strokeBorder(Color.apOrange.opacity(0.4), lineWidth: 0.5)
+                )
+        } else {
+            generationChip("Insikter", generated: hasInsights)
         }
     }
 
@@ -281,25 +305,49 @@ struct AssessmentListView: View {
 
     /// One batched existence query for the whole list (no N+1): which
     /// assessments have at least one insights row.
-    private func fetchInsightIds() async {
+    private func fetchInsightStatus() async {
         let ids = assessmentStore.assessments.map { $0.id.uuidString }
         guard !ids.isEmpty else { return }
         struct InsightRef: Decodable {
+            let id: UUID
             let assessmentId: UUID
             enum CodingKeys: String, CodingKey {
+                case id
                 case assessmentId = "assessment_id"
             }
         }
+        struct LinkedActionRef: Decodable {
+            // Optional as a belt: the count survives even if the not-null
+            // filter's server behavior ever differs.
+            let insightId: UUID?
+            enum CodingKeys: String, CodingKey {
+                case insightId = "insight_id"
+            }
+        }
         do {
-            let rows: [InsightRef] = try await supabase
+            let insights: [InsightRef] = try await supabase
                 .from("insights")
-                .select("assessment_id")
+                .select("id, assessment_id")
                 .in("assessment_id", values: ids)
                 .execute()
                 .value
-            insightAssessmentIds = Set(rows.map(\.assessmentId))
+            let linked: [LinkedActionRef] = try await supabase
+                .from("actions")
+                .select("insight_id")
+                .eq("project_id", value: project.id)
+                .not("insight_id", operator: .is, value: "null")
+                .execute()
+                .value
+            let linkedIds = Set(linked.compactMap(\.insightId))
+
+            insightAssessmentIds = Set(insights.map(\.assessmentId))
+            var counts: [UUID: Int] = [:]
+            for insight in insights where !linkedIds.contains(insight.id) {
+                counts[insight.assessmentId, default: 0] += 1
+            }
+            unhandledInsightCounts = counts
         } catch {
-            print("AssessmentListView: fetchInsightIds error: \(error)")
+            print("AssessmentListView: fetchInsightStatus error: \(error)")
         }
     }
 
