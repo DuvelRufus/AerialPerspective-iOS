@@ -76,6 +76,11 @@ class OpenActionsStore {
             prio = sortedByUrgency(groups[.prio] ?? [])
             open = sortedByUrgency(groups[.open] ?? [])
             waiting = sortedByUrgency(groups[.waiting] ?? [])
+        } catch is CancellationError {
+            // Cancelled by a newer load or view teardown (pull-to-refresh,
+            // segment switch) — not a failure: keep current rows, no error view.
+        } catch let error as URLError where error.code == .cancelled {
+            // The same abort surfaced at the URLSession layer instead.
         } catch {
             self.error = error
             print("OpenActionsStore load error: \(error)")

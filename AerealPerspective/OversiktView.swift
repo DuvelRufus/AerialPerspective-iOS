@@ -88,7 +88,10 @@ struct OversiktView: View {
         .task {
             guard !tasksLoaded else { return }
             await tasksStore.load(questionStore: questionStore, provider: scoresProvider)
-            if tasksStore.error == nil { tasksLoaded = true }
+            // A cancelled load leaves error nil (aborts are swallowed) but
+            // must not mark done — the guard would block the retry on the
+            // next activation.
+            if !Task.isCancelled && tasksStore.error == nil { tasksLoaded = true }
         }
     }
 

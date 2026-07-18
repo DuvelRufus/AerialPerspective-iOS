@@ -85,6 +85,11 @@ class HealthOverviewStore {
                     openCount: openCounts[project.id] ?? 0
                 )
             }
+        } catch is CancellationError {
+            // Cancelled by a newer load or view teardown (pull-to-refresh,
+            // tab switch) — not a failure: keep current rows, no error view.
+        } catch let error as URLError where error.code == .cancelled {
+            // The same abort surfaced at the URLSession layer instead.
         } catch {
             self.error = error
             print("HealthOverviewStore load error: \(error)")
