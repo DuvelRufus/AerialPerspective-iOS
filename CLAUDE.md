@@ -89,7 +89,7 @@ They call Claude (Swedish prompts). When backend changes are needed, **print the
 
 **Navigation:**
 - `RootTabView` — two tabs: Projekt (`ProjectListView`) and Översikt (`OversiktView`).
-- `ProjectListView` → `ProjectTabView` (a project) → segmented control over three sections: `AssessmentListView` (Assessments), `PlanView` (Plan — the app's single task surface: plan-linked, insight-created and manual tasks), `OvrigtView` (Övrigt).
+- `ProjectListView` → `ProjectTabView` (a project) → segmented control over three sections: `AssessmentListView` (Assessments), `PlanView` (Tasks — the app's single task surface: plan-linked, insight-created and manual tasks), `OvrigtView` (Resources: notes, links, contacts).
 
 **Stores** (all in `AerealPerspective/`, `*Store.swift`): `AuthStore`, `ProjectStore`, `QuestionStore` (fetches `questions` + `answer_options` once at app start), `AssessmentStore` (versioned assessments per project), `AnswerStore` (`[questionId: answerOptionId]` map), `InsightStore`, `ActionStore`.
 
