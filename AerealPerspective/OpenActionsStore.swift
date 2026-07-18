@@ -35,30 +35,27 @@ class OpenActionsStore {
     /// projects/assessments/answers batch HealthOverviewStore uses so
     /// urgency can be the action's CURRENT domain score — the same sort key
     /// PlanView.urgency uses, keeping the lens and Plan consistent.
-    func load(questionStore: QuestionStore, showSpinner: Bool = true) async {
+    func load(questionStore: QuestionStore, provider: OversiktScoresProvider, showSpinner: Bool = true) async {
         if showSpinner { isLoading = true }
         defer { isLoading = false }
         error = nil
         do {
-            // The three fetches are independent — run them concurrently;
-            // one 5G round trip of latency instead of five stacked.
-            let projectStore = ProjectStore()
+            // The two fetches are independent — run them concurrently; the
+            // provider dedupes projects+scores with the Team lens.
             async let actionsFetch: [ProjectAction] = supabase
                 .from("actions")
                 .select()
                 .neq("state", value: "done")
                 .execute()
                 .value
-            async let projectsFetch: Void = projectStore.fetch()
-            async let scoresFetch = latestScores(questionStore: questionStore)
+            async let snapshotFetch = provider.load(questionStore: questionStore)
 
             let actions = try await actionsFetch
-            _ = await projectsFetch
-            if let projectError = projectStore.error { throw projectError }
+            let snapshot = try await snapshotFetch
             let nameByProject = Dictionary(
-                uniqueKeysWithValues: projectStore.projects.map { ($0.id, $0.name) }
+                uniqueKeysWithValues: snapshot.projects.map { ($0.id, $0.name) }
             )
-            let scoresByProject = try await scoresFetch
+            let scoresByProject = snapshot.scores.latestScoresByProject()
 
             var groups: [TaskState: [OpenActionRow]] = [:]
             for action in actions {
@@ -87,8 +84,8 @@ class OpenActionsStore {
 
     /// Spinner-free refresh for pull-to-refresh, mirroring
     /// HealthOverviewStore's showSpinner: false path.
-    func reload(questionStore: QuestionStore) async {
-        await load(questionStore: questionStore, showSpinner: false)
+    func reload(questionStore: QuestionStore, provider: OversiktScoresProvider) async {
+        await load(questionStore: questionStore, provider: provider, showSpinner: false)
     }
 
     /// Lowest current domain score first (most urgent on top), nil last;
@@ -103,9 +100,4 @@ class OpenActionsStore {
         }
     }
 
-    /// Domain scores of each project's latest COMPLETED assessment, via the
-    /// shared AssessmentScoresLoader (paginated answers included).
-    private func latestScores(questionStore: QuestionStore) async throws -> [UUID: [DomainScore]] {
-        try await AssessmentScoresLoader.load(questionStore: questionStore).latestScoresByProject()
-    }
 }

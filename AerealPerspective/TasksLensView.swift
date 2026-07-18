@@ -19,6 +19,9 @@ struct TeamPlanRoute: Hashable {
 struct TasksLensView: View {
     var store: OpenActionsStore
     var questionStore: QuestionStore
+    /// Shared Översikt cache — invalidated on pull-to-refresh so a refresh
+    /// always fetches fresh; plain loads dedupe with the Team lens.
+    var provider: OversiktScoresProvider
     /// projectId → Project for building routes; rows whose project isn't
     /// resolvable yet render without navigation until the health load lands.
     var projectsById: [UUID: Project]
@@ -31,7 +34,7 @@ struct TasksLensView: View {
         } else if store.error != nil {
             APErrorState {
                 store.error = nil
-                Task { await store.load(questionStore: questionStore) }
+                Task { await store.load(questionStore: questionStore, provider: provider) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if store.prio.isEmpty && store.open.isEmpty && store.waiting.isEmpty {
@@ -69,7 +72,10 @@ struct TasksLensView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
         }
-        .refreshable { await store.reload(questionStore: questionStore) }
+        .refreshable {
+            provider.invalidate()
+            await store.reload(questionStore: questionStore, provider: provider)
+        }
     }
 
     @ViewBuilder

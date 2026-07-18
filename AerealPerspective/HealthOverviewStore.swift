@@ -43,21 +43,18 @@ class HealthOverviewStore {
         }
     }
 
-    /// Fixed query count regardless of team count — no N+1: projects, the
-    /// shared AssessmentScoresLoader (assessments + paginated answers +
-    /// completed-per-project derivation), and the open-action counts. Trend
-    /// = total-score delta between the two newest completed assessments.
-    func load(questionStore: QuestionStore, showSpinner: Bool = true) async {
+    /// Fixed query count regardless of team count — no N+1: the shared
+    /// provider (projects + assessments + paginated answers, deduped with
+    /// the Tasks lens) and the open-action counts. Trend = total-score
+    /// delta between the two newest completed assessments.
+    func load(questionStore: QuestionStore, provider: OversiktScoresProvider, showSpinner: Bool = true) async {
         if showSpinner { isLoading = true }
         defer { isLoading = false }
         error = nil
         do {
-            let projectStore = ProjectStore()
-            await projectStore.fetch()
-            if let projectError = projectStore.error { throw projectError }
-            let projects = projectStore.projects
-
-            let scoreData = try await AssessmentScoresLoader.load(questionStore: questionStore)
+            let snapshot = try await provider.load(questionStore: questionStore)
+            let projects = snapshot.projects
+            let scoreData = snapshot.scores
 
             let openRows: [OpenActionRef] = try await supabase
                 .from("actions")

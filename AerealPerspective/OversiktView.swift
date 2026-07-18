@@ -13,6 +13,8 @@ struct OversiktView: View {
 
     @State private var store = HealthOverviewStore()
     @State private var tasksStore = OpenActionsStore()
+    /// Shared cache: one projects+scores load feeds both lenses.
+    @State private var scoresProvider = OversiktScoresProvider()
     /// Set only after a SUCCESSFUL load so the .task guard doesn't swallow
     /// a failed first attempt; the error-state retry bypasses it entirely.
     @State private var tasksLoaded = false
@@ -47,7 +49,7 @@ struct OversiktView: View {
         .navigationDestination(for: TeamPlanRoute.self) { route in
             ProjectTabView(project: route.project, questionStore: questionStore, initialSection: 1)
         }
-        .task { await store.load(questionStore: questionStore) }
+        .task { await store.load(questionStore: questionStore, provider: scoresProvider) }
     }
 
     // MARK: - Lenses
@@ -61,7 +63,7 @@ struct OversiktView: View {
         } else if store.error != nil {
             APErrorState {
                 store.error = nil
-                Task { await store.load(questionStore: questionStore) }
+                Task { await store.load(questionStore: questionStore, provider: scoresProvider) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if store.rows.isEmpty {
@@ -78,13 +80,14 @@ struct OversiktView: View {
         TasksLensView(
             store: tasksStore,
             questionStore: questionStore,
+            provider: scoresProvider,
             projectsById: Dictionary(
                 uniqueKeysWithValues: store.rows.map { ($0.project.id, $0.project) }
             )
         )
         .task {
             guard !tasksLoaded else { return }
-            await tasksStore.load(questionStore: questionStore)
+            await tasksStore.load(questionStore: questionStore, provider: scoresProvider)
             if tasksStore.error == nil { tasksLoaded = true }
         }
     }
@@ -132,7 +135,10 @@ struct OversiktView: View {
             .padding(.vertical, 16)
         }
         .onAppear { rowsRevealed = true }
-        .refreshable { await store.load(questionStore: questionStore, showSpinner: false) }
+        .refreshable {
+            scoresProvider.invalidate()
+            await store.load(questionStore: questionStore, provider: scoresProvider, showSpinner: false)
+        }
     }
 
     private func healthCard(_ row: TeamHealth) -> some View {

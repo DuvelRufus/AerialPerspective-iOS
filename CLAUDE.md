@@ -42,7 +42,6 @@ Om arbetsträdet har ocommittad kod vid sessionsstart: påtala det och fråga om
 
 Håll denna korta lista uppdaterad när vi medvetet skjuter upp något. Ta bort poster när de åtgärdas.
 
-- **OpenActionsStore + HealthOverviewStore kör var sin AssessmentScoresLoader.load på Översikt.** Koden är delad (väg B:s kod-dubblering är stängd via AssessmentScoresLoader), men båda stores anropar loadern separat — projects+assessments+answers hämtas fortfarande två gånger per Översikt-besök. Kvarvarande rest: dela resultatet (en laddning, två konsumenter), inte bara koden.
 
 ---
 
