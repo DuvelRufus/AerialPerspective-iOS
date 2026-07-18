@@ -66,6 +66,12 @@ struct AssessmentView: View {
     @State private var navigatingForward = true
     @State private var glowOptionId: UUID? = nil
     @State private var showResult = false
+    /// One background save task per question — completion awaits them all
+    /// so no answer can be unsaved when generation starts. Re-answering a
+    /// question overwrites its entry; the dict is cleared on finish.
+    @State private var pendingSaves: [UUID: Task<Void, Never>] = [:]
+    /// Drives the Se resultat button's spinner while pending saves land.
+    @State private var isFinishing = false
     @State private var saveFailed = false
 
     var allQuestions: [Question] {
@@ -138,9 +144,13 @@ struct AssessmentView: View {
                         .opacity(currentQuestionIndex == 0 ? 0.4 : 1)
 
                         if isLast {
-                            APPillButton(title: "Se resultat", action: { showResult = true })
-                                .disabled(!allAnswered)
-                                .opacity(allAnswered ? 1 : 0.5)
+                            APPillButton(
+                                title: "Se resultat",
+                                action: { Task { await finishAndShowResult() } },
+                                isLoading: isFinishing
+                            )
+                            .disabled(!allAnswered || isFinishing)
+                            .opacity(allAnswered ? 1 : 0.5)
                         } else {
                             APPillButton(title: "Nästa", action: {
                                 guard !isAdvancing else { return }
@@ -302,7 +312,7 @@ struct AssessmentView: View {
         let shape = RoundedRectangle(cornerRadius: 14)
         Button {
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-            Task { await selectOption(option: option, question: question) }
+            selectOption(option: option, question: question)
         } label: {
             HStack(spacing: 10) {
                 Text(option.label)
@@ -345,38 +355,49 @@ struct AssessmentView: View {
 
     // MARK: - Actions
 
-    private func selectOption(option: AnswerOption, question: Question) async {
+    private func selectOption(option: AnswerOption, question: Question) {
         withAnimation(.easeInOut(duration: 0.2)) {
             saveFailed = false
         }
-        await answerStore.save(
-            assessmentId: assessment.id,
-            questionId: question.id,
-            answerOptionId: option.id
-        )
+
+        // Optimistic: the mark (answers[...] set at save's first line) and
+        // the advance never wait for the upsert round trip — the network
+        // used to gate the advance and made every selection feel slow.
         // save() är icke-kastande: lyckad = inget store-fel, eller att det
-        // optimistiska valet står kvar (per fråga — robust mot ett kvarhängande
-        // fel från en samtidig save på en annan fråga).
-        let saved = answerStore.error == nil || answerStore.answers[question.id] == option.id
-        guard saved else {
-            if currentQuestion?.id == question.id {
+        // optimistiska valet står kvar (per fråga — robust mot ett
+        // kvarhängande fel från en samtidig save på en annan fråga).
+        pendingSaves[question.id] = Task {
+            await answerStore.save(
+                assessmentId: assessment.id,
+                questionId: question.id,
+                answerOptionId: option.id
+            )
+            let saved = answerStore.error == nil || answerStore.answers[question.id] == option.id
+            if !saved, currentQuestion?.id == question.id {
+                // Still on the failed question: the selection just rolled
+                // back visibly — show the banner. Moved on: stay silent,
+                // the rollback leaves the question unanswered and the
+                // completion gate catches it.
                 withAnimation(.easeInOut(duration: 0.2)) {
                     saveFailed = true
                 }
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
             }
-            return
         }
+
         glowOptionId = option.id
-        let isLast = currentQuestionIndex >= allQuestions.count - 1
         Task {
             try? await Task.sleep(for: .seconds(0.3))
             glowOptionId = nil
         }
+
+        let isLast = currentQuestionIndex >= allQuestions.count - 1
         if !isLast {
             guard !isAdvancing else { return }
             isAdvancing = true
             Task {
+                // Animation timing, not latency padding: the checkmark/glow
+                // gets read before the card slides.
                 try? await Task.sleep(for: .seconds(0.15))
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                     navigatingForward = true
@@ -386,6 +407,20 @@ struct AssessmentView: View {
                 }
             }
         }
+    }
+
+    /// The optimistic advance never gates on the network — completion MUST:
+    /// generation reads answers server-side, so every pending save has to
+    /// land (and stick) before ResultView opens.
+    private func finishAndShowResult() async {
+        isFinishing = true
+        defer { isFinishing = false }
+        for task in pendingSaves.values { await task.value }
+        pendingSaves.removeAll()
+        // A rolled-back failure left its question unanswered — re-check
+        // instead of trusting the button's enable state from before.
+        guard allQuestions.allSatisfy({ answerStore.answers[$0.id] != nil }) else { return }
+        showResult = true
     }
 
     private func findStartingIndex() -> Int {
