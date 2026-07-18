@@ -538,17 +538,29 @@ struct PlanView: View {
     }
 
     private func itemRow(_ item: PlanItem) -> some View {
-        // Prio/Vänta write the linked action's state, creating the link when
-        // none exists. Ta bort deletes the plan_actions row AND its linked
-        // action behind a confirm (deleteFromPlan) — gone means gone.
-        // Klar stays on the circle tap.
-        rowContent(item)
+        // Prio/Vänta TOGGLE: tagging writes the linked action's state
+        // (creating the link when none exists); swiping the same button on
+        // an already-tagged row un-tags back to open. The un-tag branch can
+        // only fire when a linked action exists — itemState only reports
+        // prio/waiting from one — so .open never creates a ghost link.
+        // Ta bort deletes the plan_actions row AND its linked action behind
+        // a confirm (deleteFromPlan). Klar stays on the circle tap.
+        let state = itemState(item)
+        return rowContent(item)
             .apSwipeActions(id: item.id, openId: $openSwipeId, actions: [
-                APSwipeAction(title: "Prio", systemImage: "flag.fill", color: .apOrange) {
-                    setLinkedState(item, to: .prio)
+                APSwipeAction(
+                    title: state == .prio ? "Öppna" : "Prio",
+                    systemImage: state == .prio ? "flag.slash" : "flag.fill",
+                    color: .apOrange
+                ) {
+                    setLinkedState(item, to: state == .prio ? .open : .prio)
                 },
-                APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
-                    setLinkedState(item, to: .waiting)
+                APSwipeAction(
+                    title: state == .waiting ? "Öppna" : "Vänta",
+                    systemImage: state == .waiting ? "clock.badge.xmark" : "clock",
+                    color: .apWaiting
+                ) {
+                    setLinkedState(item, to: state == .waiting ? .open : .waiting)
                 },
                 APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
                     pendingDelete = .plan(item)
@@ -556,17 +568,27 @@ struct PlanView: View {
             ])
     }
 
-    /// Unlinked action row (manual / insight-created). Prio/Vänta write the
-    /// action's OWN state — never create a linked action — and Ta bort is a
-    /// hard delete behind its own confirm (no plan_actions row to SET NULL).
+    /// Unlinked action row (manual / insight-created). Prio/Vänta TOGGLE the
+    /// action's OWN state (tag ↔ back to open) — never create a linked
+    /// action — and Ta bort is a hard delete behind its own confirm (no
+    /// plan_actions row to SET NULL).
     private func actionRow(_ action: ProjectAction) -> some View {
-        actionRowContent(action)
+        let state = action.taskState
+        return actionRowContent(action)
             .apSwipeActions(id: action.id, openId: $openSwipeId, actions: [
-                APSwipeAction(title: "Prio", systemImage: "flag.fill", color: .apOrange) {
-                    Task { await actionStore.setState(action, to: .prio) }
+                APSwipeAction(
+                    title: state == .prio ? "Öppna" : "Prio",
+                    systemImage: state == .prio ? "flag.slash" : "flag.fill",
+                    color: .apOrange
+                ) {
+                    Task { await actionStore.setState(action, to: state == .prio ? .open : .prio) }
                 },
-                APSwipeAction(title: "Vänta", systemImage: "clock", color: .apWaiting) {
-                    Task { await actionStore.setState(action, to: .waiting) }
+                APSwipeAction(
+                    title: state == .waiting ? "Öppna" : "Vänta",
+                    systemImage: state == .waiting ? "clock.badge.xmark" : "clock",
+                    color: .apWaiting
+                ) {
+                    Task { await actionStore.setState(action, to: state == .waiting ? .open : .waiting) }
                 },
                 APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
                     pendingDelete = .action(action)
