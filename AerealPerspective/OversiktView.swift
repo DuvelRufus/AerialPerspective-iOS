@@ -133,7 +133,7 @@ struct OversiktView: View {
 
     private var healthList: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            VStack(spacing: 12) {
                 ForEach(Array(store.rows.enumerated()), id: \.element.id) { index, row in
                     healthCard(row)
                         .opacity(rowsRevealed ? 1 : 0)
@@ -184,7 +184,9 @@ struct OversiktView: View {
     }
 
     private func ringCardContent(_ row: TeamHealth, scores: [DomainScore]) -> some View {
-        HStack(spacing: 10) {
+        // Full-width row: ring | flexible text column | trend chip at the
+        // card's trailing edge.
+        HStack(spacing: 12) {
             scoreRing(ScoringService.total(scores))
 
             VStack(alignment: .leading, spacing: 6) {
@@ -192,20 +194,18 @@ struct OversiktView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.apTextPrimary)
                     .lineLimit(1)
-                HStack(spacing: 6) {
-                    if let weakest = row.weakest {
-                        (Text("Svagast ")
-                            .foregroundStyle(Color.apTextSecondary)
-                        + Text("\(weakest.domain.rawValue) \(weakest.score)")
-                            .foregroundStyle(Color.apScore(weakest.score)))
-                            .font(.caption2)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    trendChip(row)
+                if let weakest = row.weakest {
+                    (Text("Svagast ")
+                        .foregroundStyle(Color.apTextSecondary)
+                    + Text("\(weakest.domain.rawValue) \(weakest.score)")
+                        .foregroundStyle(Color.apScore(weakest.score)))
+                        .font(.caption2)
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            trendChip(row)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
