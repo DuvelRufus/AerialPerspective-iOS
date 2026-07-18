@@ -180,7 +180,18 @@ struct AssessmentView: View {
                 domainScores: domainScores,
                 answerStore: answerStore,
                 questionStore: questionStore,
-                onDone: { dismiss() }
+                onDone: {
+                    // Reconcile the isPresented binding BEFORE its owner is
+                    // dismissed — tearing down AssessmentView with showResult
+                    // still true is the stuck-half-transition corner (same
+                    // class as ProjectListView's path note). No animation on
+                    // the reconcile: the dismiss pop covers it, so it reads
+                    // as ONE pop to the list.
+                    var tx = Transaction()
+                    tx.disablesAnimations = true
+                    withTransaction(tx) { showResult = false }
+                    dismiss()
+                }
             )
         }
         .task {

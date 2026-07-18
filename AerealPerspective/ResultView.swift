@@ -109,11 +109,19 @@ struct ResultView: View {
         }
         .navigationTitle("Resultat – Assessment \(assessment.version)")
         .navigationBarTitleDisplayMode(.inline)
+        // Question-flow path (onDone set): back would return to the already
+        // answered questions — Klar is the only way out. List path keeps the
+        // system back.
+        .navigationBarBackButtonHidden(onDone != nil)
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            if let onDone {
+            // Klar exists only while resultContent shows — during the
+            // generation/error overlay a tap would pop mid-generation and
+            // read as "nothing happened"; the error overlay's own skip is
+            // the way out there.
+            if let onDone, !isAutoGenerating, generationError == nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Haptic in the action closure — a stacked .haptic
                     // gesture swallows toolbar-button taps (the 7edbd68
