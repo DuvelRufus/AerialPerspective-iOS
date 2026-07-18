@@ -24,7 +24,7 @@ class PlanStore {
     /// plus its plan_actions. `assessmentIdsNewestFirst` decides precedence.
     /// Read-only — plan writes (generation/regeneration) land via a later
     /// RPC, never through this store's fetches. On error both stay empty,
-    /// which lets PlanView fall back to the legacy JSONB plan.
+    /// which PlanView renders as the plan-less task view.
     func loadNewestActivePlan(assessmentIdsNewestFirst: [UUID]) async {
         isLoading = true
         defer { isLoading = false }

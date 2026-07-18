@@ -30,8 +30,8 @@ class OpenActionsStore {
     var error: Error? = nil
 
     /// Fixed query count regardless of team count — no N+1: one query for
-    /// ALL open actions (state != 'done', the source-of-truth column; the
-    /// legacy status column stays untouched until R5), plus the same
+    /// ALL open actions (state != 'done', the only status column since
+    /// R5), plus the same
     /// projects/assessments/answers batch HealthOverviewStore uses so
     /// urgency can be the action's CURRENT domain score — the same sort key
     /// PlanView.urgency uses, keeping the lens and Plan consistent.

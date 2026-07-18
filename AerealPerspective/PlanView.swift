@@ -853,7 +853,7 @@ struct PlanView: View {
 
     private func createLinkedAction(_ item: PlanItem, state: TaskState = .done) {
         // Inserts the linked action directly in the requested state (circle
-        // tap: done; swipe: prio/waiting — status stays 'open' for those).
+        // tap: done; swipe: prio/waiting).
         // Use the plan item's domain when present; otherwise silently default
         // to the source assessment's lowest-scoring domain — only as the
         // action's domain, never shown on the row.
@@ -932,33 +932,6 @@ struct PlanView: View {
         }
     }
 
-    /// Fallback items from a legacy JSONB plan without a plans row. Ids
-    /// missing in the JSON are minted once per load, so expand state stays
-    /// stable across renders within a session.
-    private func makeItems(fromLegacy plan: PlanResult) -> [PlanItem] {
-        let phases: [(Int, String, PlanPhase)] = [
-            (0, "Dag 1–30", plan.day1_30),
-            (1, "Dag 31–60", plan.day31_60),
-            (2, "Dag 61–90", plan.day61_90)
-        ]
-        var items: [PlanItem] = []
-        var order = 0
-        for (index, label, phase) in phases {
-            for action in phase.actions {
-                items.append(PlanItem(
-                    id: action.id ?? UUID(),
-                    text: action.text,
-                    domain: action.domain,
-                    phaseIndex: index,
-                    phaseLabel: label,
-                    order: order
-                ))
-                order += 1
-            }
-        }
-        return items
-    }
-
     // MARK: - Load
 
     private func load() async {
@@ -980,14 +953,6 @@ struct PlanView: View {
            let source = byNewest.first(where: { $0.id == activePlan.assessmentId }) {
             sourceAssessment = source
             items = makeItems(from: planStore.actions)
-            await loadScores(for: source)
-        } else if let source = byNewest.first(where: { $0.plan != nil }),
-                  let legacy = source.plan {
-            // Fallback: a JSONB plan without a plans row (defensive
-            // post-backfill; also covers a plan generated before writes
-            // move to rows). Display parity only.
-            sourceAssessment = source
-            items = makeItems(fromLegacy: legacy)
             await loadScores(for: source)
         } else {
             // No plan anywhere: first generation happens automatically when

@@ -94,9 +94,9 @@ They call Claude (Swedish prompts). When backend changes are needed, **print the
 
 **Stores** (all in `AerealPerspective/`, `*Store.swift`): `AuthStore`, `ProjectStore`, `QuestionStore` (fetches `questions` + `answer_options` once at app start), `AssessmentStore` (versioned assessments per project), `AnswerStore` (`[questionId: answerOptionId]` map), `InsightStore`, `ActionStore`.
 
-**Core types** (`Models.swift`): `Domain` (Team/Process/Product/Tech/Stakeholders/Culture — six fixed cases), `Project`, `Assessment` (has `version`; `plan` is JSONB `PlanResult?`), `Question`/`AnswerOption`, `Answer`, `Insight`, `PlanResult`/`PlanPhase`/`PlanAction`. `ProjectAction` lives in `ActionStore.swift`.
+**Core types** (`Models.swift`): `Domain` (Team/Process/Product/Tech/Stakeholders/Culture — six fixed cases), `Project`, `Assessment` (has `version`), `Question`/`AnswerOption`, `Answer`, `Insight`, plus the plans/plan_actions row types. `ProjectAction` lives in `ActionStore.swift`. Plans live ONLY in the `plans`/`plan_actions` tables — the legacy JSONB `assessments.plan` and its `PlanResult`/`PlanPhase`/`PlanAction` types were removed in R5.
 
-**Domain ↔ DB mapping:** All `Codable` structs use explicit `CodingKeys` mapping camelCase Swift to snake_case Postgres columns. Decode defensively — note the deliberate choices: `Insight.domain` is a `String` (not the `Domain` enum) so unexpected DB values don't fail decoding; `PlanAction.id` is optional and `PlanPhase` has a custom decoder to read legacy plans where `actions` was `[String]`. Preserve this tolerance when editing models.
+**Domain ↔ DB mapping:** All `Codable` structs use explicit `CodingKeys` mapping camelCase Swift to snake_case Postgres columns. Decode defensively — note the deliberate choice: `Insight.domain` is a `String` (not the `Domain` enum) so unexpected DB values don't fail decoding, matched via `Domain(caseInsensitive:)`. Preserve this tolerance when editing models.
 
 **Scoring** (`ScoringService.swift`): per-domain score = rounded average of answered option scores in that domain (0–100). Levels: `>=66` strong, `>=34` note, else risk. `delta(current:previous:)` compares assessment versions.
 
