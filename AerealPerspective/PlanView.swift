@@ -876,7 +876,6 @@ struct PlanView: View {
                     projectId: project.id,
                     domain: domain.rawValue,
                     title: item.text,
-                    status: state == .done ? "done" : nil,
                     state: state.rawValue,
                     assessmentId: sourceAssessment?.id,
                     planActionId: item.id,

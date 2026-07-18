@@ -20,9 +20,6 @@ struct ProjectAction: Identifiable, Codable, Equatable {
     var projectId: UUID
     var domain: String
     var title: String
-    /// Legacy open/done column — kept in sync on every write until the R5
-    /// cleanup; nothing in the app derives from it anymore.
-    var status: String
     /// Source of truth. Plain String at the DB boundary; use taskState.
     var state: String
     var assessmentId: UUID?
@@ -32,7 +29,7 @@ struct ProjectAction: Identifiable, Codable, Equatable {
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case id, domain, title, status, state
+        case id, domain, title, state
         case projectId = "project_id"
         case assessmentId = "assessment_id"
         case insightId = "insight_id"
@@ -51,7 +48,6 @@ private struct NewAction: Encodable {
     let project_id: UUID
     let domain: String
     let title: String
-    let status: String?
     let state: String?
     let assessment_id: UUID?
     let insight_id: UUID?
@@ -59,10 +55,8 @@ private struct NewAction: Encodable {
     let created_from_score: Int?
 }
 
-/// Dual-write during the status→state transition: both columns get the
-/// same open/done value so the legacy column stays valid until R5.
+/// R5: state is the only status column — the legacy dual-write is gone.
 private struct StateUpdate: Encodable {
-    let status: String
     let state: String
 }
 
@@ -98,7 +92,6 @@ class ActionStore {
         projectId: UUID,
         domain: String,
         title: String,
-        status: String? = nil,
         state: String? = nil,
         assessmentId: UUID?,
         insightId: UUID? = nil,
@@ -111,11 +104,9 @@ class ActionStore {
                 project_id: projectId,
                 domain: domain,
                 title: title,
-                status: status,
-                // Explicit state wins (create-as-prio/waiting keeps status on
-                // its 'open' default); otherwise mirror status so
-                // insert-as-done lands done in BOTH columns.
-                state: state ?? status,
+                // nil rides the DB default ('open'); createLinkedAction
+                // passes done/prio/waiting explicitly.
+                state: state,
                 assessment_id: assessmentId,
                 insight_id: insightId,
                 plan_action_id: planActionId,
@@ -128,24 +119,20 @@ class ActionStore {
         actions.insert(inserted, at: 0)
     }
 
-    /// Sets the state column (source of truth) with optimistic update and
-    /// rollback, keeping the legacy status column truthful: done ↔ "done",
-    /// everything else (open/prio/waiting) is "open" — not done.
+    /// Sets the state column (the only status column since R5) with
+    /// optimistic update and rollback.
     func setState(_ action: ProjectAction, to newState: TaskState) async {
-        let newStatus = newState == .done ? "done" : "open"
         guard let index = actions.firstIndex(where: { $0.id == action.id }) else { return }
         actions[index].state = newState.rawValue
-        actions[index].status = newStatus
         do {
             try await supabase
                 .from("actions")
-                .update(StateUpdate(status: newStatus, state: newState.rawValue))
+                .update(StateUpdate(state: newState.rawValue))
                 .eq("id", value: action.id)
                 .execute()
         } catch {
             if let index = actions.firstIndex(where: { $0.id == action.id }) {
                 actions[index].state = action.state
-                actions[index].status = action.status
             }
             print("ActionStore setState error: \(error)")
         }
