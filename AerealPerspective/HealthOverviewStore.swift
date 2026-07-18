@@ -62,7 +62,7 @@ class HealthOverviewStore {
             let openRows: [OpenActionRef] = try await supabase
                 .from("actions")
                 .select("project_id")
-                .eq("status", value: "open")
+                .neq("state", value: "done")
                 .execute()
                 .value
             var openCounts: [UUID: Int] = [:]
