@@ -223,6 +223,13 @@ private struct NewProjectSheet: View {
                             .padding()
                             .background(Color.apSurface)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
+                            // Hard cap: names must fit the Översikt ring
+                            // cards untruncated.
+                            .onChange(of: name) { _, newValue in
+                                if newValue.count > 28 {
+                                    name = String(newValue.prefix(28))
+                                }
+                            }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
