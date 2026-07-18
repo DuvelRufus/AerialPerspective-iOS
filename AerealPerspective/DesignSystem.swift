@@ -635,7 +635,10 @@ struct APSwipeActionsModifier: ViewModifier {
 
     private static let actionWidth: CGFloat = 72
     private static let actionSpacing: CGFloat = 4
-    private static let snapSpring: Animation = .spring(response: 0.3, dampingFraction: 0.7)
+    // 0.85 damping kills the overshoot tail (~0.6s at 0.7) that kept the
+    // gesture arbiter busy after a swipe and delayed the next scroll pan;
+    // 0.25 response keeps the snap quick. One small bounce survives.
+    private static let snapSpring: Animation = .spring(response: 0.25, dampingFraction: 0.85)
 
     private var revealWidth: CGFloat {
         CGFloat(actions.count) * Self.actionWidth
