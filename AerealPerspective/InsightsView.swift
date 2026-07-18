@@ -42,9 +42,9 @@ struct InsightsView: View {
             await actionStore.fetch(projectId: project.id)
         }
         .sheet(item: $insightForAction) { insight in
-            CreateActionSheet(insight: insight, domainScores: domainScores, insights: insightStore.insights) { title, domain, insightId in
-                // insightId is the CHOSEN suggestion's origin insight — the
-                // link follows the suggestion, not the tapped card.
+            CreateActionSheet(insight: insight, domainScores: domainScores) { title, domain, insightId in
+                // insightId is always the opened insight's id — the tapped
+                // card is the one that gets checked.
                 Task { await createAction(title: title, domain: domain, insightId: insightId) }
             }
         }
@@ -181,17 +181,15 @@ struct InsightsView: View {
 
 // MARK: - Create Action Sheet
 
-/// Pure suggestion picker: no free-text field, no domain picker. The domain
-/// is derived from the tapped insight and locked; the saved title is the
-/// chosen suggestion's text.
+/// Confirmation sheet for the OPENED insight's own suggestion (one insight
+/// = one suggestedAction): calm display + Spara/Avbryt. The task always
+/// links to insight.id, so the tapped card is the one that gets checked.
 private struct CreateActionSheet: View {
     let insight: Insight
     let domainScores: [DomainScore]
-    let insights: [Insight]
     let onSave: (String, Domain, UUID?) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedSuggestionId: UUID?
 
     /// Locked, derived from the tapped insight — caseInsensitive rescues
     /// casing variants; nil/unknown domain keeps the old fallback chain
@@ -201,29 +199,14 @@ private struct CreateActionSheet: View {
     init(
         insight: Insight,
         domainScores: [DomainScore],
-        insights: [Insight],
         onSave: @escaping (String, Domain, UUID?) -> Void
     ) {
         self.insight = insight
         self.domainScores = domainScores
-        self.insights = insights
         self.onSave = onSave
         self.domain = Domain(caseInsensitive: insight.domain ?? "")
             ?? domainScores.min(by: { $0.score < $1.score })?.domain
             ?? .team
-        _selectedSuggestionId = State(initialValue: insight.suggestedAction != nil ? insight.id : nil)
-    }
-
-    /// Case-insensitive on the ROW side too, so casing variants from model
-    /// output never hide a suggestion from its own domain.
-    private var suggestions: [Insight] {
-        insights.filter {
-            Domain(caseInsensitive: $0.domain ?? "") == domain && $0.suggestedAction != nil
-        }
-    }
-
-    private var selectedSuggestion: Insight? {
-        suggestions.first { $0.id == selectedSuggestionId }
     }
 
     var body: some View {
@@ -236,25 +219,18 @@ private struct CreateActionSheet: View {
                     VStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 8) {
                             APSectionHeader(title: "FÖRSLAG · \(domain.rawValue.uppercased())")
-                            if suggestions.isEmpty {
-                                emptySuggestions
+                            if let suggestion = insight.suggestedAction {
+                                suggestionCard(suggestion)
                             } else {
-                                ForEach(suggestions) { suggestion in
-                                    suggestionRow(suggestion)
-                                }
+                                emptySuggestion
                             }
                         }
 
-                        if !suggestions.isEmpty {
-                            let isDisabled = selectedSuggestion == nil
+                        if let title = insight.suggestedAction {
                             APPillButton(title: "Spara", action: {
-                                guard let suggestion = selectedSuggestion,
-                                      let title = suggestion.suggestedAction else { return }
-                                onSave(title, domain, suggestion.id)
+                                onSave(title, domain, insight.id)
                                 dismiss()
                             })
-                            .opacity(isDisabled ? 0.5 : 1)
-                            .disabled(isDisabled)
                         }
 
                         APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
@@ -271,40 +247,33 @@ private struct CreateActionSheet: View {
         .presentationDetents([.medium, .large])
     }
 
-    private var emptySuggestions: some View {
-        Text("Inga förslag för den här domänen. Skapa en egen task med + i Plan.")
+    private var emptySuggestion: some View {
+        Text("Den här insikten har inget förslag. Skapa en egen task med + i Plan.")
             .font(.caption)
             .foregroundStyle(.apTextSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 12)
     }
 
-    private func suggestionRow(_ suggestion: Insight) -> some View {
-        let isSelected = selectedSuggestionId == suggestion.id
-        return Button {
-            selectedSuggestionId = suggestion.id
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "sparkles")
-                    .font(.caption)
-                    .foregroundStyle(.apOrange)
-                Text(suggestion.suggestedAction ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.apTextPrimary)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(Color.apSurfaceElevated)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isSelected ? Color.apOrange : Color.apHairline,
-                                  lineWidth: isSelected ? 1 : 0.5)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+    /// Plain display — no selection ring, nothing to choose between.
+    private func suggestionCard(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.caption)
+                .foregroundStyle(.apOrange)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.apTextPrimary)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .haptic(.light)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.apSurfaceElevated)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.apHairline, lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
