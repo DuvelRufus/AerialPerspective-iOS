@@ -55,7 +55,8 @@ enum DurationUnit: String, Codable {
 
 // MARK: - Assessment
 
-struct Assessment: Identifiable, Codable {
+// Hashable: navigationDestination(item:) pushes require it (as Project for the path).
+struct Assessment: Identifiable, Codable, Hashable {
     let id: UUID
     var projectId: UUID
     var version: Int

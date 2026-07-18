@@ -56,8 +56,9 @@ struct AssessmentView: View {
     var assessment: Assessment
     var project: Project
     var questionStore: QuestionStore
-
-    @Environment(\.dismiss) private var dismiss
+    /// Zeroes the list-owned push binding — the single-mutation route back
+    /// to the assessment list (mechanism d).
+    var onFinished: (() -> Void)? = nil
 
     @State private var answerStore = AnswerStore()
     @State private var currentQuestionIndex = 0
@@ -181,16 +182,12 @@ struct AssessmentView: View {
                 answerStore: answerStore,
                 questionStore: questionStore,
                 onDone: {
-                    // Reconcile the isPresented binding BEFORE its owner is
-                    // dismissed — tearing down AssessmentView with showResult
-                    // still true is the stuck-half-transition corner (same
-                    // class as ProjectListView's path note). No animation on
-                    // the reconcile: the dismiss pop covers it, so it reads
-                    // as ONE pop to the list.
-                    var tx = Transaction()
-                    tx.disablesAnimations = true
-                    withTransaction(tx) { showResult = false }
-                    dismiss()
+                    // Zeroing the list-owned binding truncates the stack
+                    // below AssessmentView — this view and ResultView above
+                    // it go in ONE mutation, straight to the list. showResult
+                    // is deliberately untouched: zeroing it too would
+                    // reintroduce the same-turn double-pop race.
+                    onFinished?()
                 }
             )
         }

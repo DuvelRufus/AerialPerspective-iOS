@@ -22,6 +22,11 @@ struct AssessmentListView: View {
     @State private var insightAssessmentIds: Set<UUID> = []
     /// Assessments with an active plans row — drives the "Plan" chip.
     @State private var planAssessmentIds: Set<UUID> = []
+    /// List-owned push for the INCOMPLETE path: zeroing this removes
+    /// AssessmentView AND anything above it (ResultView) in ONE stack
+    /// mutation — no same-turn double-pop race. The system back-swipe
+    /// writes nil back through the two-way item binding.
+    @State private var activeAssessment: Assessment? = nil
 
     var body: some View {
         ZStack {
@@ -49,6 +54,16 @@ struct AssessmentListView: View {
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        // On the stable ZStack (the ProjectListView lesson): the destination
+        // must stay mounted across loading/error/empty states.
+        .navigationDestination(item: $activeAssessment) { assessment in
+            AssessmentView(
+                assessment: assessment,
+                project: project,
+                questionStore: questionStore,
+                onFinished: { activeAssessment = nil }
+            )
+        }
         .task {
             await assessmentStore.fetch(projectId: project.id)
             await fetchAnsweredCounts()
@@ -133,53 +148,62 @@ struct AssessmentListView: View {
     @ViewBuilder
     private func assessmentRow(_ assessment: Assessment) -> some View {
         let completed = isComplete(assessment)
-        NavigationLink {
-            if completed {
+        if completed {
+            // List path: straight to results, unchanged.
+            NavigationLink {
                 ResultView(
                     assessment: assessment,
                     project: project,
                     questionStore: questionStore
                 )
-            } else {
-                AssessmentView(
-                    assessment: assessment,
-                    project: project,
-                    questionStore: questionStore
-                )
+            } label: {
+                rowLabel(assessment, completed: true)
             }
-        } label: {
-            APCard {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Assessment \(assessment.version)")
-                            .font(.title3.bold())
-                            .foregroundStyle(.apTextPrimary)
-                        Text(assessment.createdAt.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
-                            .foregroundStyle(.apTextSecondary)
-                        if completed {
-                            // Chips only once completed — before that neither
-                            // insights nor plan can be generated, and the
-                            // progress line below carries the row's state.
-                            HStack(spacing: 6) {
-                                generationChip("Insikter", generated: insightAssessmentIds.contains(assessment.id))
-                                generationChip("Plan", generated: planAssessmentIds.contains(assessment.id))
-                            }
-                            .padding(.top, 2)
-                        } else {
-                            Text("\(answeredCounts[assessment.id] ?? 0)/\(questionStore.questions.count)")
-                                .font(.caption)
-                                .foregroundStyle(.apTextTertiary)
+            .buttonStyle(APRowPressStyle())
+            .simultaneousGesture(TapGesture().onEnded {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            })
+        } else {
+            // Incomplete path: list-owned push (mechanism d) — the button
+            // sets the binding; haptic in the closure, no stacked gesture.
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                activeAssessment = assessment
+            } label: {
+                rowLabel(assessment, completed: false)
+            }
+            .buttonStyle(APRowPressStyle())
+        }
+    }
+
+    private func rowLabel(_ assessment: Assessment, completed: Bool) -> some View {
+        APCard {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Assessment \(assessment.version)")
+                        .font(.title3.bold())
+                        .foregroundStyle(.apTextPrimary)
+                    Text(assessment.createdAt.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                        .foregroundStyle(.apTextSecondary)
+                    if completed {
+                        // Chips only once completed — before that neither
+                        // insights nor plan can be generated, and the
+                        // progress line below carries the row's state.
+                        HStack(spacing: 6) {
+                            generationChip("Insikter", generated: insightAssessmentIds.contains(assessment.id))
+                            generationChip("Plan", generated: planAssessmentIds.contains(assessment.id))
                         }
+                        .padding(.top, 2)
+                    } else {
+                        Text("\(answeredCounts[assessment.id] ?? 0)/\(questionStore.questions.count)")
+                            .font(.caption)
+                            .foregroundStyle(.apTextTertiary)
                     }
-                    Spacer()
                 }
+                Spacer()
             }
         }
-        .buttonStyle(APRowPressStyle())
-        .simultaneousGesture(TapGesture().onEnded {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        })
     }
 
     /// Generated → green check-chip; not yet → dim outline, deliberately
