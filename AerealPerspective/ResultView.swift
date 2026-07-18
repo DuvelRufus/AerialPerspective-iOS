@@ -30,6 +30,13 @@ struct ResultView: View {
     @State private var planStore = PlanStore()
     @State private var isAutoGenerating = false
     @State private var generationError: String? = nil
+    /// View-branch gate ONLY — never touches the generation guard. True
+    /// from frame one on the question-flow path (a just-completed
+    /// assessment can never have insights/plan, so generation is certain);
+    /// false on the list path. Cleared once autoGenerateIfNeeded has
+    /// decided, so the overlay can't stick if the decision defensively
+    /// falls out to "not needed".
+    @State private var awaitingGenerationDecision: Bool
 
     // Reveal animation: radar draws in, numbers count up, cells stagger in.
     @State private var revealProgress: Double = 0
@@ -52,6 +59,7 @@ struct ResultView: View {
         _domainScores = State(initialValue: domainScores)
         _answerStore = State(initialValue: answerStore)
         _hasLoadedScores = State(initialValue: true)
+        _awaitingGenerationDecision = State(initialValue: onDone != nil)
     }
 
     init(
@@ -67,6 +75,7 @@ struct ResultView: View {
         _domainScores = State(initialValue: [])
         _answerStore = State(initialValue: AnswerStore())
         _hasLoadedScores = State(initialValue: false)
+        _awaitingGenerationDecision = State(initialValue: false)
     }
 
     private var deltas: [Domain: Int]? {
@@ -80,7 +89,7 @@ struct ResultView: View {
             if !hasLoadedScores {
                 ProgressView()
                     .tint(.apOrange)
-            } else if isAutoGenerating || generationError != nil {
+            } else if isAutoGenerating || awaitingGenerationDecision || generationError != nil {
                 // Full-screen while generating so the radar reveal fires
                 // only once the results actually appear.
                 APGenerationLoadingView(
@@ -106,6 +115,9 @@ struct ResultView: View {
             }
             await loadPreviousScores()
             await autoGenerateIfNeeded()
+            // Decision made (generated, not needed, or errored — the error
+            // branch holds the overlay via generationError, not this flag).
+            awaitingGenerationDecision = false
         }
         .navigationTitle("Resultat – Assessment \(assessment.version)")
         .navigationBarTitleDisplayMode(.inline)
@@ -121,7 +133,7 @@ struct ResultView: View {
             // generation/error overlay a tap would pop mid-generation and
             // read as "nothing happened"; the error overlay's own skip is
             // the way out there.
-            if let onDone, !isAutoGenerating, generationError == nil {
+            if let onDone, !isAutoGenerating, !awaitingGenerationDecision, generationError == nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Haptic in the action closure — a stacked .haptic
                     // gesture swallows toolbar-button taps (the 7edbd68
