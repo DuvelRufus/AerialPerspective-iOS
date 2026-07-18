@@ -686,6 +686,11 @@ struct APSwipeActionsModifier: ViewModifier {
                             }
                     }
                 }
+                // The whole row rectangle is hit-testable for the drag —
+                // without this, sparse content (a short title at the leading
+                // edge) leaves transparent gaps that drop the swipe through
+                // to the ScrollView.
+                .contentShape(Rectangle())
                 .offset(x: currentOffset)
                 .gesture(drag)
         }
