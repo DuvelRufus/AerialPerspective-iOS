@@ -26,18 +26,23 @@ struct OversiktView: View {
         ZStack {
             APAmbientBackground()
 
-            VStack(spacing: 0) {
-                APSegmentedControl(selection: $selectedLens, options: ["Team", "Tasks"])
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-
-                if selectedLens == 0 {
-                    teamLens
-                } else {
-                    tasksLens
-                }
+            if selectedLens == 0 {
+                teamLens
+            } else {
+                tasksLens
             }
+        }
+        // Pinned above BOTH lenses: a safe-area inset sits outside the
+        // scroll geometry, so pull-to-refresh moves only the list and the
+        // spinner lands BELOW the segment instead of colliding with it.
+        // The apBackground plate matches the nav bar's toolbarBackground and
+        // occludes cards on overscroll.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            APSegmentedControl(selection: $selectedLens, options: ["Team", "Tasks"])
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .background(Color.apBackground)
         }
         .navigationTitle("Översikt")
         .navigationBarTitleDisplayMode(.large)
