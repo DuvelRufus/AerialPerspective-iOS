@@ -133,7 +133,7 @@ struct OversiktView: View {
 
     private var healthList: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 ForEach(Array(store.rows.enumerated()), id: \.element.id) { index, row in
                     healthCard(row)
                         .opacity(rowsRevealed ? 1 : 0)
@@ -161,48 +161,107 @@ struct OversiktView: View {
     }
 
     private func healthCard(_ row: TeamHealth) -> some View {
-        NavigationLink(
-            destination: ProjectTabView(
-                project: row.project,
-                questionStore: questionStore
-            )
-        ) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(row.project.name)
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.apTextPrimary)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    trendChip(row)
+        Group {
+            if let scores = row.latestScores {
+                // Scored teams land on Plan (the task surface) via the
+                // value route — a deliberate change from the old
+                // Assessments landing.
+                NavigationLink(value: TeamPlanRoute(project: row.project)) {
+                    ringCardContent(row, scores: scores)
                 }
-
-                if let scores = row.latestScores {
-                    scoreStrip(scores)
-                    attentionLine(row)
-                } else {
-                    // Zero completed assessments: name + open count only.
-                    Text("Ingen assessment ännu")
-                        .font(.caption)
-                        .foregroundStyle(.apTextTertiary)
-                    if row.openCount > 0 {
-                        Text(openLabel(row.openCount))
-                            .font(.caption)
-                            .foregroundStyle(.apOrange)
-                    }
+            } else {
+                // Zero completed: keep the Assessments landing so the
+                // first-assessment flow stays one tap away.
+                NavigationLink(
+                    destination: ProjectTabView(project: row.project, questionStore: questionStore)
+                ) {
+                    placeholderCardContent(row)
                 }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.apSurface)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(Color.apHairline, lineWidth: 0.5)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(APRowPressStyle())
         .haptic(.light)
+    }
+
+    private func ringCardContent(_ row: TeamHealth, scores: [DomainScore]) -> some View {
+        HStack(spacing: 10) {
+            scoreRing(ScoringService.total(scores))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(row.project.name)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.apTextPrimary)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let weakest = row.weakest {
+                        (Text("Svagast ")
+                            .foregroundStyle(Color.apTextSecondary)
+                        + Text("\(weakest.domain.rawValue) \(weakest.score)")
+                            .foregroundStyle(Color.apScore(weakest.score)))
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    trendChip(row)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.apSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.apHairline, lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// Zero completed assessments: empty gray track ring (no number), name
+    /// and the placeholder caption — no chip, exactly as before.
+    private func placeholderCardContent(_ row: TeamHealth) -> some View {
+        HStack(spacing: 10) {
+            Circle()
+                .stroke(Color.apHairline, lineWidth: 5)
+                .frame(width: 48, height: 48)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(row.project.name)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.apTextPrimary)
+                    .lineLimit(1)
+                Text("Ingen assessment ännu")
+                    .font(.caption2)
+                    .foregroundStyle(.apTextTertiary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.apSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.apHairline, lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// Total-score ring: gray track, trim colored by the shared 66/34
+    /// bands, number centered — the same color logic the old strip used.
+    private func scoreRing(_ total: Int) -> some View {
+        ZStack {
+            Circle()
+                .stroke(Color.apHairline, lineWidth: 5)
+            Circle()
+                .trim(from: 0, to: CGFloat(total) / 100)
+                .stroke(Color.apScore(total), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(total)")
+                .font(.subheadline.bold().monospacedDigit())
+                .foregroundStyle(.apTextPrimary)
+        }
+        .frame(width: 48, height: 48)
     }
 
     // MARK: - Card pieces
@@ -234,33 +293,4 @@ struct OversiktView: View {
             .clipShape(Capsule())
     }
 
-    /// Six equal segments, one per domain, band-colored by score.
-    private func scoreStrip(_ scores: [DomainScore]) -> some View {
-        HStack(spacing: 3) {
-            ForEach(scores, id: \.domain) { ds in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.apScore(ds.score))
-                    .frame(height: 6)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    private func attentionLine(_ row: TeamHealth) -> some View {
-        HStack(spacing: 6) {
-            if let weakest = row.weakest {
-                Text("Svagast: \(weakest.domain.rawValue) · \(weakest.score)")
-                    .foregroundStyle(Color.apScore(weakest.score))
-            }
-            if row.openCount > 0 {
-                Text("— \(openLabel(row.openCount))")
-                    .foregroundStyle(.apTextTertiary)
-            }
-        }
-        .font(.caption)
-    }
-
-    private func openLabel(_ count: Int) -> String {
-        count == 1 ? "1 öppen" : "\(count) öppna"
-    }
 }
