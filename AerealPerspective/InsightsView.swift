@@ -42,8 +42,10 @@ struct InsightsView: View {
             await actionStore.fetch(projectId: project.id)
         }
         .sheet(item: $insightForAction) { insight in
-            CreateActionSheet(insight: insight, domainScores: domainScores, insights: insightStore.insights) { title, domain in
-                Task { await createAction(title: title, domain: domain, insightId: insight.id) }
+            CreateActionSheet(insight: insight, domainScores: domainScores, insights: insightStore.insights) { title, domain, insightId in
+                // insightId is the CHOSEN suggestion's origin insight — the
+                // link follows the suggestion, not the tapped card.
+                Task { await createAction(title: title, domain: domain, insightId: insightId) }
             }
         }
     }
@@ -179,105 +181,107 @@ struct InsightsView: View {
 
 // MARK: - Create Action Sheet
 
+/// Pure suggestion picker: no free-text field, no domain picker. The domain
+/// is derived from the tapped insight and locked; the saved title is the
+/// chosen suggestion's text.
 private struct CreateActionSheet: View {
     let insight: Insight
     let domainScores: [DomainScore]
     let insights: [Insight]
-    let onSave: (String, Domain) -> Void
+    let onSave: (String, Domain, UUID?) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var title: String
-    @State private var domain: Domain
     @State private var selectedSuggestionId: UUID?
+
+    /// Locked, derived from the tapped insight — caseInsensitive rescues
+    /// casing variants; nil/unknown domain keeps the old fallback chain
+    /// (lowest-scoring domain, then .team).
+    private let domain: Domain
 
     init(
         insight: Insight,
         domainScores: [DomainScore],
         insights: [Insight],
-        onSave: @escaping (String, Domain) -> Void
+        onSave: @escaping (String, Domain, UUID?) -> Void
     ) {
         self.insight = insight
         self.domainScores = domainScores
         self.insights = insights
         self.onSave = onSave
-        _title = State(initialValue: insight.suggestedAction ?? insight.title ?? "")
-        _domain = State(initialValue: insight.domain.flatMap(Domain.init(rawValue:))
-            ?? domainScores.min(by: { $0.score < $1.score })?.domain ?? .team)
+        self.domain = Domain(caseInsensitive: insight.domain ?? "")
+            ?? domainScores.min(by: { $0.score < $1.score })?.domain
+            ?? .team
         _selectedSuggestionId = State(initialValue: insight.suggestedAction != nil ? insight.id : nil)
     }
 
+    /// Case-insensitive on the ROW side too, so casing variants from model
+    /// output never hide a suggestion from its own domain.
     private var suggestions: [Insight] {
-        insights.filter { $0.domain == domain.rawValue && $0.suggestedAction != nil }
+        insights.filter {
+            Domain(caseInsensitive: $0.domain ?? "") == domain && $0.suggestedAction != nil
+        }
+    }
+
+    private var selectedSuggestion: Insight? {
+        suggestions.first { $0.id == selectedSuggestionId }
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.apBackground.ignoresSafeArea()
-                VStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "ÅTGÄRD")
-                        TextField("", text: $title)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.apTextPrimary)
-                            .padding()
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    if !suggestions.isEmpty {
+                // Scrollable + medium/large detents: long suggestions wrap in
+                // full instead of compressing in a fixed-height layout.
+                ScrollView {
+                    VStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 8) {
-                            APSectionHeader(title: "FÖRSLAG FRÅN INSIKTER")
-                            ForEach(suggestions) { suggestion in
-                                suggestionRow(suggestion)
+                            APSectionHeader(title: "FÖRSLAG · \(domain.rawValue.uppercased())")
+                            if suggestions.isEmpty {
+                                emptySuggestions
+                            } else {
+                                ForEach(suggestions) { suggestion in
+                                    suggestionRow(suggestion)
+                                }
                             }
                         }
-                    }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "DOMÄN")
-                        Picker("Domän", selection: $domain) {
-                            ForEach(Domain.allCases, id: \.self) {
-                                Text($0.rawValue).tag($0)
-                            }
+                        if !suggestions.isEmpty {
+                            let isDisabled = selectedSuggestion == nil
+                            APPillButton(title: "Spara", action: {
+                                guard let suggestion = selectedSuggestion,
+                                      let title = suggestion.suggestedAction else { return }
+                                onSave(title, domain, suggestion.id)
+                                dismiss()
+                            })
+                            .opacity(isDisabled ? 0.5 : 1)
+                            .disabled(isDisabled)
                         }
-                        .pickerStyle(.menu)
-                        .tint(.apOrange)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.apSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                        APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
                     }
-
-                    let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
-                    APPillButton(title: "Spara", action: {
-                        let trimmed = title.trimmingCharacters(in: .whitespaces)
-                        guard !trimmed.isEmpty else { return }
-                        onSave(trimmed, domain)
-                        dismiss()
-                    })
-                    .opacity(isDisabled ? 0.5 : 1)
-                    .disabled(isDisabled)
-
-                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
-                    Spacer()
+                    .padding()
                 }
-                .padding()
             }
-            .navigationTitle("Ny åtgärd")
+            .navigationTitle("Ny task")
             .navigationBarTitleDisplayMode(.inline)
             .preferredColorScheme(.dark)
             .toolbarBackground(Color.apBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+    }
+
+    private var emptySuggestions: some View {
+        Text("Inga förslag för den här domänen. Skapa en egen task med + i Plan.")
+            .font(.caption)
+            .foregroundStyle(.apTextSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 12)
     }
 
     private func suggestionRow(_ suggestion: Insight) -> some View {
         let isSelected = selectedSuggestionId == suggestion.id
         return Button {
-            title = suggestion.suggestedAction ?? ""
             selectedSuggestionId = suggestion.id
         } label: {
             HStack(spacing: 10) {
