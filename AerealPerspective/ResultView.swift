@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 import SwiftUI
 import Supabase
 
@@ -114,9 +115,14 @@ struct ResultView: View {
         .toolbar {
             if let onDone {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Klar") { onDone() }
-                        .foregroundStyle(.apOrange)
-                        .haptic(.light)
+                    // Haptic in the action closure — a stacked .haptic
+                    // gesture swallows toolbar-button taps (the 7edbd68
+                    // family).
+                    Button("Klar") {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onDone()
+                    }
+                    .foregroundStyle(.apOrange)
                 }
             }
         }
