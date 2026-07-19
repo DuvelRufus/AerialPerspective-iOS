@@ -436,74 +436,100 @@ private struct ResourceEmptyState: View {
     }
 }
 
-// MARK: - Add Note Sheet
+// MARK: - Note form
 
-/// Minimal skapa-anteckning (beslut i delsteg 2): utan den finns ingen väg
-/// alls att skapa notes i appen. Redigering av befintliga byggs i delsteg 5.
-private struct AddNoteSheet: View {
+/// Delat formulär för skapa (sheet, tomt) och redigera (push, förifyllt).
+/// Vet inget om storen — levererar (titel, body) via onSave; callern väljer
+/// add eller update. dismiss() stänger sheeten respektive poppar pushen.
+private struct NoteFormView: View {
+    let heading: String
     let onSave: (String, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var noteBody = ""
+    @State private var title: String
+    @State private var noteBody: String
+
+    init(
+        heading: String,
+        title: String = "",
+        body: String = "",
+        onSave: @escaping (String, String) -> Void
+    ) {
+        self.heading = heading
+        self.onSave = onSave
+        _title = State(initialValue: title)
+        _noteBody = State(initialValue: body)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.apBackground.ignoresSafeArea()
+            VStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    APSectionHeader(title: "TITEL")
+                    TextField("", text: $title)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.apTextPrimary)
+                        .padding()
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    APSectionHeader(title: "ANTECKNING")
+                    ZStack(alignment: .topLeading) {
+                        if noteBody.isEmpty {
+                            Text("Skriv...")
+                                .font(.body)
+                                .foregroundStyle(.apTextTertiary)
+                                .padding(.top, 16)
+                                .padding(.leading, 13)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $noteBody)
+                            .font(.body)
+                            .foregroundStyle(.apTextPrimary)
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .frame(height: 180)
+                    }
+                    .background(Color.apSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
+                APPillButton(title: "Spara", action: {
+                    let t = title.trimmingCharacters(in: .whitespaces)
+                    guard !t.isEmpty else { return }
+                    onSave(t, noteBody)
+                    dismiss()
+                })
+                .opacity(isDisabled ? 0.5 : 1)
+                .disabled(isDisabled)
+
+                APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
+                Spacer()
+            }
+            .padding()
+        }
+        .navigationTitle(heading)
+        .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
+        .toolbarBackground(Color.apBackground, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+    }
+}
+
+// MARK: - Add Note Sheet
+
+/// Skapa-läget: quick-capture-sheet med egen NavigationStack. Redigera-läget
+/// pushar NoteFormView direkt i projektstacken i stället.
+private struct AddNoteSheet: View {
+    let onSave: (String, String) -> Void
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.apBackground.ignoresSafeArea()
-                VStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "TITEL")
-                        TextField("", text: $title)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.apTextPrimary)
-                            .padding()
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "ANTECKNING")
-                        ZStack(alignment: .topLeading) {
-                            if noteBody.isEmpty {
-                                Text("Skriv...")
-                                    .font(.body)
-                                    .foregroundStyle(.apTextTertiary)
-                                    .padding(.top, 16)
-                                    .padding(.leading, 13)
-                                    .allowsHitTesting(false)
-                            }
-                            TextEditor(text: $noteBody)
-                                .font(.body)
-                                .foregroundStyle(.apTextPrimary)
-                                .scrollContentBackground(.hidden)
-                                .padding(8)
-                                .frame(height: 180)
-                        }
-                        .background(Color.apSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
-                    APPillButton(title: "Spara", action: {
-                        let t = title.trimmingCharacters(in: .whitespaces)
-                        guard !t.isEmpty else { return }
-                        onSave(t, noteBody)
-                        dismiss()
-                    })
-                    .opacity(isDisabled ? 0.5 : 1)
-                    .disabled(isDisabled)
-
-                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
-                    Spacer()
-                }
-                .padding()
-            }
-            .navigationTitle("Ny anteckning")
-            .navigationBarTitleDisplayMode(.inline)
-            .preferredColorScheme(.dark)
-            .toolbarBackground(Color.apBackground, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            NoteFormView(heading: "Ny anteckning", onSave: onSave)
         }
     }
 }
