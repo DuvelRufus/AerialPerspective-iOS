@@ -22,6 +22,9 @@ struct NotesListView: View {
     @State private var showAddNote = false
     @State private var pendingDelete: Note? = nil
     @State private var openSwipeId: UUID? = nil
+    /// List-ägd så utfällt läge överlever re-renders; vid delete lämnas
+    /// id:t kvar i setet — harmlöst, raden renderas aldrig igen.
+    @State private var expandedIds: Set<UUID> = []
 
     var body: some View {
         ZStack {
@@ -110,7 +113,8 @@ struct NotesListView: View {
     }
 
     private func noteRow(_ note: Note) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let isExpanded = expandedIds.contains(note.id)
+        return VStack(alignment: .leading, spacing: 3) {
             Text(note.title.isEmpty ? "Utan titel" : note.title)
                 .font(.subheadline.bold())
                 .foregroundStyle(.apTextPrimary)
@@ -118,7 +122,7 @@ struct NotesListView: View {
                 Text(note.body)
                     .font(.caption)
                     .foregroundStyle(.apTextSecondary)
-                    .lineLimit(2)
+                    .lineLimit(isExpanded ? nil : 2)
             }
             Text(RelativeDateTimeFormatter().localizedString(for: note.updatedAt, relativeTo: Date()))
                 .font(.caption2)
@@ -127,6 +131,18 @@ struct NotesListView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
+        // linkRow-prejudikatet: tap samexisterar med apSwipeActions tack
+        // vare modifierns riktnings-latch.
+        .onTapGesture {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.easeInOut) {
+                if isExpanded {
+                    expandedIds.remove(note.id)
+                } else {
+                    expandedIds.insert(note.id)
+                }
+            }
+        }
     }
 }
 
