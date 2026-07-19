@@ -8,33 +8,7 @@
 import Foundation
 import UIKit
 import SwiftUI
-import Supabase
-
-// MARK: - Models
-
-struct Contact: Identifiable, Codable {
-    let id: UUID
-    var projectId: UUID
-    var name: String
-    var role: String?
-    var contactInfo: String?
-    var createdAt: Date
-    enum CodingKeys: String, CodingKey {
-        case id, name, role
-        case projectId = "project_id"
-        case contactInfo = "contact_info"
-        case createdAt = "created_at"
-    }
-}
-
-// MARK: - Insert payloads
-
-private struct NewContact: Encodable {
-    let project_id: UUID
-    let name: String
-    let role: String?
-    let contact_info: String?
-}
+import ContactsUI
 
 // MARK: - Delete intent
 
@@ -54,9 +28,7 @@ struct OvrigtView: View {
     var project: Project
     var notesStore: NotesStore
     var linksStore: LinksStore
-
-    // Data
-    @State private var contacts: [Contact] = []
+    var contactsStore: ContactsStore
 
     // Sheets
     @State private var showAddLink = false
@@ -111,7 +83,7 @@ struct OvrigtView: View {
             .refreshable {
                 await notesStore.fetch(projectId: project.id)
                 await linksStore.fetch(projectId: project.id)
-                await fetchContacts()
+                await contactsStore.fetch(projectId: project.id)
             }
         }
         .preferredColorScheme(.dark)
@@ -120,7 +92,7 @@ struct OvrigtView: View {
         .task {
             await notesStore.fetch(projectId: project.id)
             await linksStore.fetch(projectId: project.id)
-            await fetchContacts()
+            await contactsStore.fetch(projectId: project.id)
         }
         .sheet(isPresented: $showAddLink) {
             AddLinkSheet { title, url, category in
@@ -135,7 +107,14 @@ struct OvrigtView: View {
         }
         .sheet(isPresented: $showAddContact) {
             AddContactSheet { name, role, info in
-                Task { await addContact(name: name, role: role, contactInfo: info) }
+                Task {
+                    do {
+                        // avatarColor nil tills färgväljaren i layout-steget.
+                        try await contactsStore.add(projectId: project.id, name: name, role: role, contactInfo: info, avatarColor: nil)
+                    } catch {
+                        print("OvrigtView: addContact error: \(error)")
+                    }
+                }
             }
         }
         .confirmationDialog(
@@ -405,7 +384,7 @@ struct OvrigtView: View {
                 sectionHeader(
                     title: "KONTAKTER",
                     icon: "person.2.fill",
-                    count: contacts.isEmpty ? nil : contacts.count,
+                    count: contactsStore.contacts.isEmpty ? nil : contactsStore.contacts.count,
                     isExpanded: contactsExpanded,
                     pulse: $contactsPulsing,
                     onAdd: { showAddContact = true }
@@ -415,21 +394,21 @@ struct OvrigtView: View {
                     // Same layout-identical wrapper + fade as Anteckningar so
                     // all three cards reveal identically.
                     VStack(alignment: .leading, spacing: 0) {
-                        if contacts.isEmpty {
+                        if contactsStore.contacts.isEmpty {
                             Text("Inga kontakter ännu")
                                 .font(.caption)
                                 .foregroundStyle(.apTextTertiary)
                                 .padding(.top, 12)
                         } else {
                             VStack(spacing: 0) {
-                                ForEach(contacts) { contact in
+                                ForEach(contactsStore.contacts) { contact in
                                     contactRow(contact)
                                         .apSwipeActions(id: contact.id, openId: $openSwipeContactId, actions: [
                                             APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
                                                 pendingDelete = .contact(contact)
                                             }
                                         ])
-                                    if contact.id != contacts.last?.id {
+                                    if contact.id != contactsStore.contacts.last?.id {
                                         Divider().background(Color.apHairline)
                                     }
                                 }
@@ -466,53 +445,13 @@ struct OvrigtView: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - Fetch
-
-    private func fetchContacts() async {
-        do {
-            contacts = try await supabase
-                .from("contacts")
-                .select()
-                .eq("project_id", value: project.id)
-                .order("created_at", ascending: false)
-                .execute()
-                .value
-        } catch {
-            print("OvrigtView: fetchContacts error: \(error)")
-        }
-    }
-
-    // MARK: - Add
-
-    private func addContact(name: String, role: String?, contactInfo: String?) async {
-        do {
-            let inserted: Contact = try await supabase
-                .from("contacts")
-                .insert(NewContact(project_id: project.id, name: name, role: role, contact_info: contactInfo))
-                .select()
-                .single()
-                .execute()
-                .value
-            contacts.insert(inserted, at: 0)
-        } catch {
-            print("OvrigtView: addContact error: \(error)")
-        }
-    }
-
     // MARK: - Delete
 
     private func performDelete(_ intent: DeleteIntent) async {
-        do {
-            switch intent {
-            case .link(let l):
-                // Storen äger optimistisk removal + rollback; kastar inte.
-                await linksStore.delete(l)
-            case .contact(let c):
-                try await supabase.from("contacts").delete().eq("id", value: c.id).execute()
-                contacts.removeAll { $0.id == c.id }
-            }
-        } catch {
-            print("OvrigtView: delete error: \(error)")
+        // Storarna äger optimistisk removal + rollback; ingen gren kastar.
+        switch intent {
+        case .link(let l):    await linksStore.delete(l)
+        case .contact(let c): await contactsStore.delete(c)
         }
     }
 }
@@ -652,6 +591,35 @@ private struct AddLinkSheet: View {
     }
 }
 
+// MARK: - Contact picker
+
+/// CNContactPickerViewController kör out-of-process och kräver därför varken
+/// NSContactsUsageDescription eller Contacts-behörighet — appen ser bara den
+/// kontakt användaren aktivt väljer.
+private struct ContactPicker: UIViewControllerRepresentable {
+    let onPick: (CNContact) -> Void
+
+    func makeUIViewController(context: Context) -> CNContactPickerViewController {
+        let picker = CNContactPickerViewController()
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_: CNContactPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    final class Coordinator: NSObject, CNContactPickerDelegate {
+        let onPick: (CNContact) -> Void
+        init(onPick: @escaping (CNContact) -> Void) { self.onPick = onPick }
+
+        func contactPicker(_ picker: CNContactPickerViewController, didSelect contact: CNContact) {
+            onPick(contact)
+        }
+        // Cancel: pickern stänger sig själv; SwiftUI-sheeten följer med.
+    }
+}
+
 // MARK: - Add Contact Sheet
 
 private struct AddContactSheet: View {
@@ -661,12 +629,32 @@ private struct AddContactSheet: View {
     @State private var name = ""
     @State private var role = ""
     @State private var contactInfo = ""
+    @State private var showPicker = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.apBackground.ignoresSafeArea()
                 VStack(spacing: 16) {
+                    Button {
+                        showPicker = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: 16, weight: .medium))
+                            Text("Välj från kontakter")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .foregroundStyle(Color.apOrange)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .haptic(.light)
+
                     VStack(alignment: .leading, spacing: 8) {
                         APSectionHeader(title: "NAMN")
                         TextField("", text: $name)
@@ -717,6 +705,22 @@ private struct AddContactSheet: View {
             .preferredColorScheme(.dark)
             .toolbarBackground(Color.apBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .sheet(isPresented: $showPicker) {
+                ContactPicker { contact in
+                    // Autofyll — allt förblir redigerbart efteråt. role finns
+                    // inte i systemkontakten och lämnas orörd.
+                    let fullName = [contact.givenName, contact.familyName]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
+                    if !fullName.isEmpty { name = fullName }
+                    if let phone = contact.phoneNumbers.first?.value.stringValue {
+                        contactInfo = phone
+                    } else if let email = contact.emailAddresses.first?.value {
+                        contactInfo = email as String
+                    }
+                    showPicker = false
+                }
+            }
         }
     }
 }
