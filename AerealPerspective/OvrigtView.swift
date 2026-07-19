@@ -593,30 +593,51 @@ private struct AddLinkSheet: View {
 
 // MARK: - Contact picker
 
-/// CNContactPickerViewController kör out-of-process och kräver därför varken
-/// NSContactsUsageDescription eller Contacts-behörighet — appen ser bara den
-/// kontakt användaren aktivt väljer.
-private struct ContactPicker: UIViewControllerRepresentable {
+/// Pickern presenteras via UIKit present() från en osynlig host-VC. Som
+/// .sheet-rot bryts den out-of-process-delegatkanalen — didSelect levereras
+/// aldrig (verifierad bugg). Via UIKit äger pickern sin egen dismissal och
+/// callbacken kommer fram. Behörighetsläget oförändrat: out-of-process,
+/// ingen NSContactsUsageDescription.
+private struct ContactPickerPresenter: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
     let onPick: (CNContact) -> Void
 
-    func makeUIViewController(context: Context) -> CNContactPickerViewController {
-        let picker = CNContactPickerViewController()
-        picker.delegate = context.coordinator
-        return picker
+    func makeUIViewController(context: Context) -> UIViewController {
+        UIViewController()   // osynligt ankare i hierarkin, presenterar pickern
     }
 
-    func updateUIViewController(_: CNContactPickerViewController, context: Context) {}
+    func updateUIViewController(_ host: UIViewController, context: Context) {
+        context.coordinator.parent = self   // färsk binding/closure varje render
+        if isPresented && !context.coordinator.isPresenting {
+            context.coordinator.isPresenting = true
+            let picker = CNContactPickerViewController()
+            picker.delegate = context.coordinator
+            host.present(picker, animated: true)
+        }
+    }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     final class Coordinator: NSObject, CNContactPickerDelegate {
-        let onPick: (CNContact) -> Void
-        init(onPick: @escaping (CNContact) -> Void) { self.onPick = onPick }
+        var parent: ContactPickerPresenter
+        /// Guard: updateUIViewController körs flera gånger per presentation.
+        var isPresenting = false
+        init(parent: ContactPickerPresenter) { self.parent = parent }
 
         func contactPicker(_ picker: CNContactPickerViewController, didSelect contact: CNContact) {
-            onPick(contact)
+            parent.onPick(contact)
+            finish()
         }
-        // Cancel: pickern stänger sig själv; SwiftUI-sheeten följer med.
+
+        func contactPickerDidCancel(_ picker: CNContactPickerViewController) {
+            finish()   // avbryt nollar också showPicker — pickern kan öppnas igen
+        }
+
+        /// Pickern river sin egen presentation; här synkas bara SwiftUI-staten.
+        private func finish() {
+            isPresenting = false
+            parent.isPresented = false
+        }
     }
 }
 
@@ -705,14 +726,19 @@ private struct AddContactSheet: View {
             .preferredColorScheme(.dark)
             .toolbarBackground(Color.apBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .sheet(isPresented: $showPicker) {
-                ContactPicker { contact in
+            .background {
+                ContactPickerPresenter(isPresented: $showPicker) { contact in
                     // Autofyll — allt förblir redigerbart efteråt. role finns
                     // inte i systemkontakten och lämnas orörd.
                     let fullName = [contact.givenName, contact.familyName]
                         .filter { !$0.isEmpty }
                         .joined(separator: " ")
-                    if !fullName.isEmpty { name = fullName }
+                    if !fullName.isEmpty {
+                        name = fullName
+                    } else if !contact.organizationName.isEmpty {
+                        // Företagskontakt utan person-namn: organisationen är namnet.
+                        name = contact.organizationName
+                    }
                     if let phone = contact.phoneNumbers.first?.value.stringValue {
                         contactInfo = phone
                     } else if let email = contact.emailAddresses.first?.value {
