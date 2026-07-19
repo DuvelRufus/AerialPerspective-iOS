@@ -26,6 +26,19 @@ struct NotesListView: View {
     /// id:t kvar i setet — harmlöst, raden renderas aldrig igen.
     @State private var expandedIds: Set<UUID> = []
     @State private var editingNote: Note? = nil
+    @State private var searchText = ""
+
+    /// Rent client-side: filtrerar den redan hämtade arrayen i minnet —
+    /// ingen fetch, ingen DB-query. Case-insensitive över titel+body+taggar.
+    private var filteredNotes: [Note] {
+        let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return notesStore.notes }
+        return notesStore.notes.filter {
+            $0.title.lowercased().contains(q)
+                || $0.body.lowercased().contains(q)
+                || $0.tags.contains { $0.lowercased().contains(q) }
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -34,17 +47,21 @@ struct NotesListView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if notesStore.notes.isEmpty {
                         ResourceEmptyState(text: "Inga anteckningar ännu")
+                    } else if filteredNotes.isEmpty {
+                        // Skiljt från tomma listan: det FINNS anteckningar,
+                        // sökningen träffade bara inget.
+                        ResourceEmptyState(text: "Inga träffar")
                     } else {
                         APCard {
                             VStack(spacing: 0) {
-                                ForEach(notesStore.notes) { note in
+                                ForEach(filteredNotes) { note in
                                     noteRow(note)
                                         .apSwipeActions(id: note.id, openId: $openSwipeId, actions: [
                                             APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
                                                 pendingDelete = note
                                             }
                                         ])
-                                    if note.id != notesStore.notes.last?.id {
+                                    if note.id != filteredNotes.last?.id {
                                         Divider().background(Color.apHairline)
                                     }
                                 }
@@ -61,6 +78,7 @@ struct NotesListView: View {
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Sök anteckningar")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showAddNote = true } label: {
@@ -129,15 +147,22 @@ struct NotesListView: View {
         )
     }
 
-    /// Passiv i detta steg — blir filterknapp när sökfältet landar.
+    /// Filterknapp: tap sätter sökfältet till taggen. Egen Button →
+    /// hit-precedens över radens tap (inline-expanderingen triggas inte).
     private func tagChip(_ tag: String) -> some View {
-        Text(tag)
-            .font(.caption2)
-            .foregroundStyle(.apTextSecondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.apSurfaceElevated)
-            .clipShape(Capsule())
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            searchText = tag
+        } label: {
+            Text(tag)
+                .font(.caption2)
+                .foregroundStyle(.apTextSecondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.apSurfaceElevated)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func noteRow(_ note: Note) -> some View {
