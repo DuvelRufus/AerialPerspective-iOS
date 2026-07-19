@@ -459,17 +459,24 @@ private struct ContactPickerPresenter: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Add Contact Sheet
+// MARK: - Contact form
 
-struct AddContactSheet: View {
+/// Delat formulär för skapa (sheet, tomt, med picker-import) och redigera
+/// (push, förifyllt, utan import — beslut). Vet inget om storen: onSave
+/// levererar fälten och callern väljer add eller update. Ingen egen
+/// NavigationStack — pushbar; dismiss() stänger sheeten resp. poppar pushen.
+struct ContactFormView: View {
+    let heading: String
+    /// nil = skapa-läge; annars förifylls fälten och picker-importen döljs.
+    let contact: Contact?
     /// (name, role, phone, email) — tomma valfria fält levereras som nil.
     let onSave: (String, String?, String?, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var role = ""
-    @State private var phone = ""
-    @State private var email = ""
+    @State private var name: String
+    @State private var role: String
+    @State private var phone: String
+    @State private var email: String
     @State private var showPicker = false
 
     // Flervalsimport: > 1 kandidater i respektive kanal parkeras här och
@@ -479,11 +486,25 @@ struct AddContactSheet: View {
     @State private var showPhoneChoice = false
     @State private var showEmailChoice = false
 
+    init(
+        heading: String,
+        contact: Contact? = nil,
+        onSave: @escaping (String, String?, String?, String?) -> Void
+    ) {
+        self.heading = heading
+        self.contact = contact
+        self.onSave = onSave
+        _name = State(initialValue: contact?.name ?? "")
+        _role = State(initialValue: contact?.role ?? "")
+        _phone = State(initialValue: contact?.phone ?? "")
+        _email = State(initialValue: contact?.email ?? "")
+    }
+
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.apBackground.ignoresSafeArea()
-                VStack(spacing: 16) {
+        ZStack {
+            Color.apBackground.ignoresSafeArea()
+            VStack(spacing: 16) {
+                if contact == nil {
                     Button {
                         showPicker = true
                     } label: {
@@ -502,141 +523,141 @@ struct AddContactSheet: View {
                     }
                     .buttonStyle(.plain)
                     .haptic(.light)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "NAMN")
-                        TextField("", text: $name)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.apTextPrimary)
-                            .padding()
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "ROLL (VALFRITT)")
-                        TextField("", text: $role)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.apTextPrimary)
-                            .padding()
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "TELEFON (VALFRITT)")
-                        TextField("", text: $phone)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.apTextPrimary)
-                            .keyboardType(.phonePad)
-                            .padding()
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "E-POST (VALFRITT)")
-                        TextField("", text: $email)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.apTextPrimary)
-                            .keyboardType(.emailAddress)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                            .padding()
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    let isDisabled = name.trimmingCharacters(in: .whitespaces).isEmpty
-                    APPillButton(title: "Spara", action: {
-                        let trimmed = name.trimmingCharacters(in: .whitespaces)
-                        guard !trimmed.isEmpty else { return }
-                        onSave(
-                            trimmed,
-                            role.isEmpty ? nil : role,
-                            phone.isEmpty ? nil : phone,
-                            email.isEmpty ? nil : email
-                        )
-                        dismiss()
-                    })
-                    .opacity(isDisabled ? 0.5 : 1)
-                    .disabled(isDisabled)
-
-                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
-                    Spacer()
                 }
-                .padding()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    APSectionHeader(title: "NAMN")
+                    TextField("", text: $name)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.apTextPrimary)
+                        .padding()
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    APSectionHeader(title: "ROLL (VALFRITT)")
+                    TextField("", text: $role)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.apTextPrimary)
+                        .padding()
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    APSectionHeader(title: "TELEFON (VALFRITT)")
+                    TextField("", text: $phone)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.apTextPrimary)
+                        .keyboardType(.phonePad)
+                        .padding()
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    APSectionHeader(title: "E-POST (VALFRITT)")
+                    TextField("", text: $email)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.apTextPrimary)
+                        .keyboardType(.emailAddress)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .padding()
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                let isDisabled = name.trimmingCharacters(in: .whitespaces).isEmpty
+                APPillButton(title: "Spara", action: {
+                    let trimmed = name.trimmingCharacters(in: .whitespaces)
+                    guard !trimmed.isEmpty else { return }
+                    onSave(
+                        trimmed,
+                        role.isEmpty ? nil : role,
+                        phone.isEmpty ? nil : phone,
+                        email.isEmpty ? nil : email
+                    )
+                    dismiss()
+                })
+                .opacity(isDisabled ? 0.5 : 1)
+                .disabled(isDisabled)
+
+                APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
+                Spacer()
             }
-            .navigationTitle("Ny kontakt")
-            .navigationBarTitleDisplayMode(.inline)
-            .preferredColorScheme(.dark)
-            .toolbarBackground(Color.apBackground, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .background {
-                ContactPickerPresenter(isPresented: $showPicker) { contact in
-                    // Autofyll — allt förblir redigerbart efteråt. role finns
-                    // inte i systemkontakten och lämnas orörd.
-                    let fullName = [contact.givenName, contact.familyName]
-                        .filter { !$0.isEmpty }
-                        .joined(separator: " ")
-                    if !fullName.isEmpty {
-                        name = fullName
-                    } else if !contact.organizationName.isEmpty {
-                        // Företagskontakt utan person-namn: organisationen är namnet.
-                        name = contact.organizationName
-                    }
-                    // Ett värde → tyst autofyll; flera → dialog per kanal.
-                    // Dedupe med bevarad ordning — dubblettsträngar skulle
-                    // kollidera i ForEach(id: \.self).
-                    let phones = orderedUnique(contact.phoneNumbers.map { $0.value.stringValue })
-                    let emails = orderedUnique(contact.emailAddresses.map { $0.value as String })
-                    if phones.count == 1 { phone = phones[0] }
-                    if emails.count == 1 { email = emails[0] }
-                    phoneChoices = phones.count > 1 ? phones : []
-                    emailChoices = emails.count > 1 ? emails : []
-                    showPicker = false
-                    if !phoneChoices.isEmpty || !emailChoices.isEmpty {
-                        Task {
-                            // Vänta ut pickerns självdismissal — en dialog
-                            // som presenteras mitt i den animationen svälls.
-                            try? await Task.sleep(for: .milliseconds(400))
-                            if !phoneChoices.isEmpty {
-                                showPhoneChoice = true
-                            } else {
-                                showEmailChoice = true
-                            }
+            .padding()
+        }
+        .navigationTitle(heading)
+        .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
+        .toolbarBackground(Color.apBackground, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .background {
+            ContactPickerPresenter(isPresented: $showPicker) { contact in
+                // Autofyll — allt förblir redigerbart efteråt. role finns
+                // inte i systemkontakten och lämnas orörd.
+                let fullName = [contact.givenName, contact.familyName]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+                if !fullName.isEmpty {
+                    name = fullName
+                } else if !contact.organizationName.isEmpty {
+                    // Företagskontakt utan person-namn: organisationen är namnet.
+                    name = contact.organizationName
+                }
+                // Ett värde → tyst autofyll; flera → dialog per kanal.
+                // Dedupe med bevarad ordning — dubblettsträngar skulle
+                // kollidera i ForEach(id: \.self).
+                let phones = orderedUnique(contact.phoneNumbers.map { $0.value.stringValue })
+                let emails = orderedUnique(contact.emailAddresses.map { $0.value as String })
+                if phones.count == 1 { phone = phones[0] }
+                if emails.count == 1 { email = emails[0] }
+                phoneChoices = phones.count > 1 ? phones : []
+                emailChoices = emails.count > 1 ? emails : []
+                showPicker = false
+                if !phoneChoices.isEmpty || !emailChoices.isEmpty {
+                    Task {
+                        // Vänta ut pickerns självdismissal — en dialog
+                        // som presenteras mitt i den animationen svälls.
+                        try? await Task.sleep(for: .milliseconds(400))
+                        if !phoneChoices.isEmpty {
+                            showPhoneChoice = true
+                        } else {
+                            showEmailChoice = true
                         }
                     }
                 }
             }
-            .confirmationDialog("Välj telefonnummer", isPresented: $showPhoneChoice, titleVisibility: .visible) {
-                ForEach(phoneChoices, id: \.self) { number in
-                    Button(number) { phone = number }
+        }
+        .confirmationDialog("Välj telefonnummer", isPresented: $showPhoneChoice, titleVisibility: .visible) {
+            ForEach(phoneChoices, id: \.self) { number in
+                Button(number) { phone = number }
+            }
+            Button("Avbryt", role: .cancel) { }   // fältet lämnas orört
+        }
+        // Kedjningen ligger på false-flanken, inte i knapparna: den
+        // träffas av val, Avbryt och tap-utanför likvärdigt, och dialog
+        // #2 direkt i en knapp-action svalts av #1:s dismissal.
+        .onChange(of: showPhoneChoice) { _, isPresented in
+            guard !isPresented else { return }
+            phoneChoices = []
+            if !emailChoices.isEmpty {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    showEmailChoice = true
                 }
-                Button("Avbryt", role: .cancel) { }   // fältet lämnas orört
             }
-            // Kedjningen ligger på false-flanken, inte i knapparna: den
-            // träffas av val, Avbryt och tap-utanför likvärdigt, och dialog
-            // #2 direkt i en knapp-action svalts av #1:s dismissal.
-            .onChange(of: showPhoneChoice) { _, isPresented in
-                guard !isPresented else { return }
-                phoneChoices = []
-                if !emailChoices.isEmpty {
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(250))
-                        showEmailChoice = true
-                    }
-                }
+        }
+        .confirmationDialog("Välj e-postadress", isPresented: $showEmailChoice, titleVisibility: .visible) {
+            ForEach(emailChoices, id: \.self) { address in
+                Button(address) { email = address }
             }
-            .confirmationDialog("Välj e-postadress", isPresented: $showEmailChoice, titleVisibility: .visible) {
-                ForEach(emailChoices, id: \.self) { address in
-                    Button(address) { email = address }
-                }
-                Button("Avbryt", role: .cancel) { }   // fältet lämnas orört
-            }
-            .onChange(of: showEmailChoice) { _, isPresented in
-                if !isPresented { emailChoices = [] }
-            }
+            Button("Avbryt", role: .cancel) { }   // fältet lämnas orört
+        }
+        .onChange(of: showEmailChoice) { _, isPresented in
+            if !isPresented { emailChoices = [] }
         }
     }
 
@@ -644,5 +665,19 @@ struct AddContactSheet: View {
     private func orderedUnique(_ values: [String]) -> [String] {
         var seen = Set<String>()
         return values.filter { seen.insert($0).inserted }
+    }
+}
+
+// MARK: - Add Contact Sheet
+
+/// Skapa-läget: quick-capture-sheet med egen NavigationStack. Redigera-läget
+/// pushar ContactFormView direkt i projektstacken i stället.
+struct AddContactSheet: View {
+    let onSave: (String, String?, String?, String?) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ContactFormView(heading: "Ny kontakt", onSave: onSave)
+        }
     }
 }
