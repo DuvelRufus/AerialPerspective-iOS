@@ -84,25 +84,15 @@ struct OvrigtView: View {
         }
     }
 
-    // MARK: - Glass card chrome
+    // MARK: - Section card chrome
 
-    /// APCard plus a thin top-edge light line, shared by all three sections
-    /// so they stay on the exact same glass idiom.
+    /// APCard rakt av sedan topplinjen togs bort (kortstil-likriktningen) —
+    /// wrappern kollapsas till direkta APCard-anrop i konsolideringssteget.
     private func glassSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         // APCard's stored closure is @escaping; capture the built view, not
         // the non-escaping parameter.
         let built = content()
         return APCard { built }
-            .overlay(alignment: .top) {
-                LinearGradient(
-                    colors: [.clear, Color.apOrange.opacity(0.5), .clear],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(height: 1)
-                .padding(.horizontal, 20) // inset so the line sits inside the corner radius
-                .allowsHitTesting(false)
-            }
     }
 
     // MARK: - Section header
