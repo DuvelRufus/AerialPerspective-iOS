@@ -206,15 +206,19 @@ struct APPillButton: View {
 // MARK: - APCard
 
 struct APCard<Content: View>: View {
+    /// 0 för rader/celler som äger sin egen padding eller har full-bleed-
+    /// innehåll (dividers, accent-bars); default 16 för fristående kort.
+    var padding: CGFloat
     let content: () -> Content
 
-    init(@ViewBuilder content: @escaping () -> Content) {
+    init(padding: CGFloat = 16, @ViewBuilder content: @escaping () -> Content) {
+        self.padding = padding
         self.content = content
     }
 
     var body: some View {
         content()
-            .padding(16)
+            .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.apSurface)
             .overlay(

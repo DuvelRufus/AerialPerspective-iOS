@@ -113,32 +113,27 @@ struct ProjectListView: View {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     path.append(project)
                 } label: {
-                    HStack(spacing: 0) {
-                        Rectangle()
-                            .fill(Color.apOrange)
-                            .frame(width: 3)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(project.name)
-                                .font(.title3.bold())
-                                .foregroundStyle(.apTextPrimary)
-                            if let val = project.durationValue,
-                               let unit = project.durationUnit {
-                                Text(durationLabel(val, unit))
-                                    .font(.subheadline)
-                                    .foregroundStyle(.apTextSecondary)
+                    APCard(padding: 0) {
+                        HStack(spacing: 0) {
+                            Rectangle()
+                                .fill(Color.apOrange)
+                                .frame(width: 3)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(project.name)
+                                    .font(.title3.bold())
+                                    .foregroundStyle(.apTextPrimary)
+                                if let val = project.durationValue,
+                                   let unit = project.durationUnit {
+                                    Text(durationLabel(val, unit))
+                                        .font(.subheadline)
+                                        .foregroundStyle(.apTextSecondary)
+                                }
                             }
+                            .padding(.vertical, 20)
+                            .padding(.horizontal, 20)
+                            Spacer(minLength: 0)
                         }
-                        .padding(.vertical, 20)
-                        .padding(.horizontal, 20)
-                        Spacer(minLength: 0)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.apSurface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .strokeBorder(Color.apHairline, lineWidth: 0.5)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 .buttonStyle(APRowPressStyle())
                 .listRowBackground(Color.clear)

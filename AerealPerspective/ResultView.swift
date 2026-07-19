@@ -216,40 +216,35 @@ struct ResultView: View {
     }
 
     private func domainCell(_ ds: DomainScore) -> some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(Color.apLevel(ds.level))
-                .frame(width: 3)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(ds.domain.rawValue.uppercased())
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.apTextSecondary)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(cellsRevealed ? ds.score : 0)")
-                        .font(.title.bold().monospacedDigit())
-                        .fontDesign(.rounded)
-                        .contentTransition(.numericText(value: Double(cellsRevealed ? ds.score : 0)))
-                        .foregroundStyle(.apTextPrimary)
-                    if let delta = deltas?[ds.domain] {
-                        deltaIndicator(delta)
-                            .transition(.scale.combined(with: .opacity))
-                    } else if previousScores == nil {
-                        deltaIndicator(0).hidden()
+        APCard(padding: 0) {
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.apLevel(ds.level))
+                    .frame(width: 3)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(ds.domain.rawValue.uppercased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.apTextSecondary)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(cellsRevealed ? ds.score : 0)")
+                            .font(.title.bold().monospacedDigit())
+                            .fontDesign(.rounded)
+                            .contentTransition(.numericText(value: Double(cellsRevealed ? ds.score : 0)))
+                            .foregroundStyle(.apTextPrimary)
+                        if let delta = deltas?[ds.domain] {
+                            deltaIndicator(delta)
+                                .transition(.scale.combined(with: .opacity))
+                        } else if previousScores == nil {
+                            deltaIndicator(0).hidden()
+                        }
                     }
+                    APScorePill(score: ds.score, level: ds.level, label: levelWord(ds.level))
                 }
-                APScorePill(score: ds.score, level: ds.level, label: levelWord(ds.level))
+                .padding(.vertical, 16)
+                .padding(.horizontal, 16)
+                Spacer(minLength: 0)
             }
-            .padding(.vertical, 16)
-            .padding(.horizontal, 16)
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.apSurface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.apHairline, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func deltaIndicator(_ delta: Int) -> some View {

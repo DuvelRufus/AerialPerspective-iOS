@@ -112,44 +112,40 @@ struct InsightsView: View {
     }
 
     private func insightCard(_ insight: Insight) -> some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(riskColor(insight.riskLevel))
-                .frame(width: 4)
-            VStack(alignment: .leading, spacing: 6) {
-                if let title = insight.title {
-                    Text(title)
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.apTextPrimary)
+        APCard(padding: 0) {
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(riskColor(insight.riskLevel))
+                    .frame(width: 4)
+                VStack(alignment: .leading, spacing: 6) {
+                    if let title = insight.title {
+                        Text(title)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.apTextPrimary)
+                    }
+                    if let content = insight.content {
+                        Text(content)
+                            .font(.caption)
+                            .foregroundStyle(.apTextSecondary)
+                    }
                 }
-                if let content = insight.content {
-                    Text(content)
-                        .font(.caption)
-                        .foregroundStyle(.apTextSecondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+                Spacer(minLength: 0)
+                let isLinked = actionStore.actions.contains { $0.insightId == insight.id }
+                Button {
+                    insightForAction = insight
+                } label: {
+                    Image(systemName: isLinked ? "checkmark.circle.fill" : "plus.circle")
+                        .font(.title3)
+                        .foregroundStyle(isLinked ? Color.apStrong : Color.apOrange)
                 }
+                .buttonStyle(.plain)
+                .haptic(.medium)
+                .minTapTarget()
+                .padding(.trailing, 4)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
-            Spacer(minLength: 0)
-            let isLinked = actionStore.actions.contains { $0.insightId == insight.id }
-            Button {
-                insightForAction = insight
-            } label: {
-                Image(systemName: isLinked ? "checkmark.circle.fill" : "plus.circle")
-                    .font(.title3)
-                    .foregroundStyle(isLinked ? Color.apStrong : Color.apOrange)
-            }
-            .buttonStyle(.plain)
-            .haptic(.medium)
-            .minTapTarget()
-            .padding(.trailing, 4)
         }
-        .background(Color.apSurface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.apHairline, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func createAction(title: String, domain: Domain, insightId: UUID?) async {

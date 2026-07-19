@@ -92,20 +92,16 @@ struct TasksLensView: View {
     }
 
     private func rowCard(_ rows: [OpenActionRow], dimmed: Bool) -> some View {
-        VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                rowLink(row, dimmed: dimmed)
-                if index != rows.count - 1 {
-                    Divider().background(Color.apHairline)
+        APCard(padding: 0) {
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    rowLink(row, dimmed: dimmed)
+                    if index != rows.count - 1 {
+                        Divider().background(Color.apHairline)
+                    }
                 }
             }
         }
-        .background(Color.apSurface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.apHairline, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     @ViewBuilder

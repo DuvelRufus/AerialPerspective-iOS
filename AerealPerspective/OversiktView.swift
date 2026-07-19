@@ -186,65 +186,53 @@ struct OversiktView: View {
     private func ringCardContent(_ row: TeamHealth, scores: [DomainScore]) -> some View {
         // Full-width row: ring | flexible text column | trend chip at the
         // card's trailing edge.
-        HStack(spacing: 12) {
-            scoreRing(ScoringService.total(scores))
+        APCard(padding: 14) {
+            HStack(spacing: 12) {
+                scoreRing(ScoringService.total(scores))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(row.project.name)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.apTextPrimary)
-                    .lineLimit(1)
-                if let weakest = row.weakest {
-                    (Text("Svagast ")
-                        .foregroundStyle(Color.apTextSecondary)
-                    + Text("\(weakest.domain.rawValue) \(weakest.score)")
-                        .foregroundStyle(Color.apScore(weakest.score)))
-                        .font(.caption2)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(row.project.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.apTextPrimary)
                         .lineLimit(1)
+                    if let weakest = row.weakest {
+                        (Text("Svagast ")
+                            .foregroundStyle(Color.apTextSecondary)
+                        + Text("\(weakest.domain.rawValue) \(weakest.score)")
+                            .foregroundStyle(Color.apScore(weakest.score)))
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            trendChip(row)
+                trendChip(row)
+            }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.apSurface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.apHairline, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     /// Zero completed assessments: empty gray track ring (no number), name
     /// and the placeholder caption — no chip, exactly as before.
     private func placeholderCardContent(_ row: TeamHealth) -> some View {
-        HStack(spacing: 10) {
-            Circle()
-                .stroke(Color.apHairline, lineWidth: 5)
-                .frame(width: 48, height: 48)
+        APCard(padding: 14) {
+            HStack(spacing: 10) {
+                Circle()
+                    .stroke(Color.apHairline, lineWidth: 5)
+                    .frame(width: 48, height: 48)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(row.project.name)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.apTextPrimary)
-                    .lineLimit(1)
-                Text("Ingen assessment ännu")
-                    .font(.caption2)
-                    .foregroundStyle(.apTextTertiary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(row.project.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.apTextPrimary)
+                        .lineLimit(1)
+                    Text("Ingen assessment ännu")
+                        .font(.caption2)
+                        .foregroundStyle(.apTextTertiary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.apSurface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.apHairline, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     /// Total-score ring: gray track, trim colored by the shared 66/34

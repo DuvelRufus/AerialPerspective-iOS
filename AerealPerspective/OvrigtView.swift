@@ -84,17 +84,6 @@ struct OvrigtView: View {
         }
     }
 
-    // MARK: - Section card chrome
-
-    /// APCard rakt av sedan topplinjen togs bort (kortstil-likriktningen) —
-    /// wrappern kollapsas till direkta APCard-anrop i konsolideringssteget.
-    private func glassSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        // APCard's stored closure is @escaping; capture the built view, not
-        // the non-escaping parameter.
-        let built = content()
-        return APCard { built }
-    }
-
     // MARK: - Section header
 
     /// Statisk översiktsheader — accordion borta; chevronen pekar mot den
@@ -170,7 +159,7 @@ struct OvrigtView: View {
         NavigationLink {
             NotesListView(project: project, notesStore: notesStore)
         } label: {
-            glassSection {
+            APCard {
                 sectionHeader(
                     title: "ANTECKNINGAR",
                     icon: "note.text",
@@ -205,7 +194,7 @@ struct OvrigtView: View {
     }
 
     private var linksCardLabel: some View {
-        glassSection {
+        APCard {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
                     title: "LÄNKAR",
@@ -282,7 +271,7 @@ struct OvrigtView: View {
     }
 
     private var contactsCardLabel: some View {
-        glassSection {
+        APCard {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
                     title: "KONTAKTER",

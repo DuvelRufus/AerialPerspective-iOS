@@ -485,20 +485,16 @@ struct PlanView: View {
     }
 
     private func itemCard(_ list: [PlanRow]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(Array(list.enumerated()), id: \.element.id) { index, row in
-                rowView(row)
-                if index != list.count - 1 {
-                    Divider().background(Color.apHairline)
+        APCard(padding: 0) {
+            VStack(spacing: 0) {
+                ForEach(Array(list.enumerated()), id: \.element.id) { index, row in
+                    rowView(row)
+                    if index != list.count - 1 {
+                        Divider().background(Color.apHairline)
+                    }
                 }
             }
         }
-        .background(Color.apSurface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.apHairline, lineWidth: 0.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func progressHeader(done: Int, total: Int) -> some View {
