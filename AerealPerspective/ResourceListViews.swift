@@ -255,13 +255,6 @@ struct LinksListView: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text(link.category)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.apOrange)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.apOrangeTint)
-                .clipShape(Capsule())
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
