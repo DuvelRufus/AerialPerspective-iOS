@@ -10,7 +10,8 @@ import Supabase
 
 // MARK: - Model
 
-struct Contact: Identifiable, Codable, Equatable {
+// Hashable: navigationDestination(item:)-pushen till redigeringsvyn kräver det.
+struct Contact: Identifiable, Codable, Hashable {
     let id: UUID
     var projectId: UUID
     var name: String

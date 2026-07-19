@@ -306,6 +306,7 @@ struct ContactsListView: View {
     @State private var showAddContact = false
     @State private var pendingDelete: Contact? = nil
     @State private var openSwipeId: UUID? = nil
+    @State private var editingContact: Contact? = nil
 
     var body: some View {
         ZStack {
@@ -348,6 +349,19 @@ struct ContactsListView: View {
                         .foregroundStyle(Color.apOrange)
                 }
                 .haptic(.medium)
+            }
+        }
+        // Mekanism d på den stabila containern (AssessmentListView-prejudikatet):
+        // pencil-knappen sätter bindingen; SwiftUI nollar den vid pop.
+        .navigationDestination(item: $editingContact) { contact in
+            ContactFormView(heading: "Redigera kontakt", contact: contact) { name, role, phone, email, avatarColor in
+                var updated = contact
+                updated.name = name
+                updated.role = role
+                updated.phone = phone
+                updated.email = email
+                updated.avatarColor = avatarColor
+                Task { await contactsStore.update(updated) }
             }
         }
         .sheet(isPresented: $showAddContact) {
@@ -419,6 +433,17 @@ struct ContactsListView: View {
                         openContactURL("mailto:" + email)
                     }
                 }
+                // Egen Button → hit-precedens över radytan, som CTA:erna.
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    editingContact = contact
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.apTextSecondary)
+                }
+                .buttonStyle(.plain)
+                .minTapTarget()
             }
         }
         .padding(.vertical, 8)
