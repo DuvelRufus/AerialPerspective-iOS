@@ -16,10 +16,6 @@ struct OvrigtView: View {
     var linksStore: LinksStore
     var contactsStore: ContactsStore
 
-    // Sheets
-    @State private var showAddLink = false
-    @State private var showAddContact = false
-
     // Entrance: cards fade + slide in staggered, same idiom as ResultView.
     // Once per view instance — segment switches recreate the view, so the
     // entrance replays each time the tab becomes visible.
@@ -59,54 +55,33 @@ struct OvrigtView: View {
             await linksStore.fetch(projectId: project.id)
             await contactsStore.fetch(projectId: project.id)
         }
-        .sheet(isPresented: $showAddLink) {
-            AddLinkSheet { title, url, category in
-                Task {
-                    do {
-                        try await linksStore.add(projectId: project.id, title: title, url: url, category: category)
-                    } catch {
-                        print("OvrigtView: addLink error: \(error)")
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showAddContact) {
-            AddContactSheet { name, role, info in
-                Task {
-                    do {
-                        // avatarColor nil tills färgväljaren i layout-steget.
-                        try await contactsStore.add(projectId: project.id, name: name, role: role, contactInfo: info, avatarColor: nil)
-                    } catch {
-                        print("OvrigtView: addContact error: \(error)")
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - Section header
 
-    /// Statisk översiktsheader — accordion borta; chevronen pekar mot den
-    /// fulla sektionsvyn (kopplas i delsteg 2). +-knappen har egen Button
-    /// med hit-precedens.
+    /// Statisk översiktsheader per mockupen — neutral ikon-tile, titel i
+    /// gemener, chevron mot den fulla sektionsvyn. Ingen count-pill, ingen
+    /// quick-add: add bor i sektionsvyns toolbar.
     private func sectionHeader(
         title: String,
         icon: String,
-        subtitle: String? = nil,
-        count: Int?,
-        onAdd: (() -> Void)?
+        subtitle: String? = nil
     ) -> some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 11)
-                .fill(Color.apOrange.opacity(0.14))
+                .fill(Color.apSurfaceElevated)
                 .frame(width: 38, height: 38)
                 .overlay {
                     Image(systemName: icon)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.apOrange)
+                        .foregroundStyle(.apTextSecondary)
                 }
             VStack(alignment: .leading, spacing: 2) {
-                APSectionHeader(title: title)
+                // Gemener per mockupen — APSectionHeader versaliserar, därav Text.
+                Text(title)
+                    .font(.caption)
+                    .tracking(1.5)
+                    .foregroundStyle(Color.apTextSecondary)
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)
@@ -114,25 +89,6 @@ struct OvrigtView: View {
                 }
             }
             Spacer()
-            if let count, count > 0 {
-                Text("\(count)")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.apTextSecondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.07))
-                    .clipShape(Capsule())
-            }
-            if let onAdd {
-                Button(action: onAdd) {
-                    Image(systemName: "plus")
-                        .foregroundStyle(.apOrange)
-                        .font(.system(size: 15, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .haptic(.medium)
-                .minTapTarget()
-            }
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.apTextTertiary)
@@ -161,11 +117,9 @@ struct OvrigtView: View {
         } label: {
             APCard {
                 sectionHeader(
-                    title: "ANTECKNINGAR",
+                    title: "Anteckningar",
                     icon: "note.text",
-                    subtitle: notesSubtitle,
-                    count: notesStore.notes.isEmpty ? nil : notesStore.notes.count,
-                    onAdd: nil
+                    subtitle: notesSubtitle
                 )
             }
         }
@@ -177,9 +131,9 @@ struct OvrigtView: View {
 
     // MARK: - Links section
 
-    /// Glimten visar max så många chips; resten blir en "+N"-chip —
-    /// fulla listan bor i sektionsvyn (delsteg 2).
-    private static let maxChips = 8
+    /// Glimten visar max så många favicon-tiles; resten blir en "+N"-tile —
+    /// fulla listan bor i sektionsvyn.
+    private static let maxChips = 4
 
     private var linksSection: some View {
         NavigationLink {
@@ -197,26 +151,18 @@ struct OvrigtView: View {
         APCard {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
-                    title: "LÄNKAR",
+                    title: "Länkar",
                     icon: "link",
-                    subtitle: linksStore.links.isEmpty ? "Inga länkar ännu" : nil,
-                    count: linksStore.links.isEmpty ? nil : linksStore.links.count,
-                    onAdd: { showAddLink = true }
+                    subtitle: linksStore.links.isEmpty ? "Inga länkar ännu" : nil
                 )
 
                 if !linksStore.links.isEmpty {
-                    FlowLayout(spacing: 8) {
+                    HStack(spacing: 8) {
                         ForEach(linksStore.links.prefix(Self.maxChips)) { link in
-                            linkChip(link)
+                            faviconTile(link)
                         }
                         if linksStore.links.count > Self.maxChips {
-                            Text("+\(linksStore.links.count - Self.maxChips)")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.apTextSecondary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(Color.apSurfaceElevated)
-                                .clipShape(Capsule())
+                            overflowTile(count: linksStore.links.count - Self.maxChips)
                         }
                     }
                     .padding(.top, 10)
@@ -225,31 +171,24 @@ struct OvrigtView: View {
         }
     }
 
-    /// S7: only http(s) ever reaches UIApplication.open — delegates to the
-    /// policy shared with AddLinkSheet's save path so the two can't diverge.
-    private func validatedLinkURL(from raw: String) -> URL? {
-        LinkURLPolicy.normalized(from: raw)
+    /// Favicon-only tile per mockupen — passiv: länk-öppning bor i
+    /// sektionsvyns rader, glimten navigerar bara via kortets NavigationLink.
+    private func faviconTile(_ link: ProjectLink) -> some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.apSurfaceElevated)
+            .frame(width: 32, height: 32)
+            .overlay { LinkFavicon(link: link) }
     }
 
-    private func linkChip(_ link: ProjectLink) -> some View {
-        Button {
-            guard let url = validatedLinkURL(from: link.url) else { return }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            UIApplication.shared.open(url)
-        } label: {
-            HStack(spacing: 6) {
-                LinkFavicon(link: link)
-                Text(link.title)
-                    .font(.caption)
-                    .foregroundStyle(.apTextPrimary)
-                    .lineLimit(1)
+    private func overflowTile(count: Int) -> some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.apSurfaceElevated)
+            .frame(width: 32, height: 32)
+            .overlay {
+                Text("+\(count)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.apTextTertiary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(Color.apSurfaceElevated)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
 
 
@@ -274,11 +213,9 @@ struct OvrigtView: View {
         APCard {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
-                    title: "KONTAKTER",
+                    title: "Kontakter",
                     icon: "person.2.fill",
-                    subtitle: contactsStore.contacts.isEmpty ? "Inga kontakter ännu" : nil,
-                    count: contactsStore.contacts.isEmpty ? nil : contactsStore.contacts.count,
-                    onAdd: { showAddContact = true }
+                    subtitle: contactsStore.contacts.isEmpty ? "Inga kontakter ännu" : nil
                 )
 
                 if !contactsStore.contacts.isEmpty {
@@ -288,13 +225,15 @@ struct OvrigtView: View {
                             InitialsAvatar(name: contact.name, colorHex: contact.avatarColor, size: 32)
                         }
                         if contactsStore.contacts.count > Self.maxAvatars {
+                            // Cirkulär så den följer avatar-raden; samma
+                            // färgidiom som länkarnas overflow-tile.
                             Circle()
                                 .fill(Color.apSurfaceElevated)
                                 .frame(width: 32, height: 32)
                                 .overlay {
                                     Text("+\(contactsStore.contacts.count - Self.maxAvatars)")
                                         .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(.apTextSecondary)
+                                        .foregroundStyle(.apTextTertiary)
                                 }
                         }
                     }
@@ -366,45 +305,6 @@ struct LinkFavicon: View {
                         .foregroundStyle(Color.apOrange)
                 }
             }
-    }
-}
-
-// MARK: - Flow layout
-
-/// Minimal wrap-layout för chip-raden: radbryt när nästa chip inte ryms,
-/// radhöjd = högsta chip i raden. Privat tills fler ytor behöver wrap.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > maxWidth {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-        return CGSize(width: proposal.width ?? x, height: y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
     }
 }
 
