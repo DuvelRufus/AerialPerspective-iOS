@@ -15,12 +15,16 @@ struct Contact: Identifiable, Codable, Equatable {
     var projectId: UUID
     var name: String
     var role: String?
+    /// Legacy-enfältet: skrivs inte längre och läses inte i UI sedan
+    /// phone/email delades upp — behålls i modellen så gamla rader dekodar.
     var contactInfo: String?
+    var phone: String?
+    var email: String?
     var avatarColor: String?
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case id, name, role
+        case id, name, role, phone, email
         case projectId = "project_id"
         case contactInfo = "contact_info"
         case avatarColor = "avatar_color"
@@ -34,7 +38,8 @@ private struct NewContact: Encodable {
     let project_id: UUID
     let name: String
     let role: String?
-    let contact_info: String?
+    let phone: String?
+    let email: String?
     let avatar_color: String?
 }
 
@@ -72,13 +77,14 @@ class ContactsStore {
         }
     }
 
-    /// avatarColor är den valda palettfärgen (#RRGGBB) eller nil — detta
-    /// steg skickar callern alltid nil; färgväljaren kommer i layout-steget.
+    /// avatarColor är den valda palettfärgen (#RRGGBB) eller nil — callern
+    /// skickar nil tills färgväljaren byggs.
     func add(
         projectId: UUID,
         name: String,
         role: String?,
-        contactInfo: String?,
+        phone: String?,
+        email: String?,
         avatarColor: String?
     ) async throws {
         let inserted: Contact = try await supabase
@@ -87,7 +93,8 @@ class ContactsStore {
                 project_id: projectId,
                 name: name,
                 role: role,
-                contact_info: contactInfo,
+                phone: phone,
+                email: email,
                 avatar_color: avatarColor
             ))
             .select()

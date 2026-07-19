@@ -320,11 +320,11 @@ struct ContactsListView: View {
             }
         }
         .sheet(isPresented: $showAddContact) {
-            AddContactSheet { name, role, info in
+            AddContactSheet { name, role, phone, email in
                 Task {
                     do {
-                        // avatarColor nil tills färgväljaren i delsteg 4.
-                        try await contactsStore.add(projectId: project.id, name: name, role: role, contactInfo: info, avatarColor: nil)
+                        // avatarColor nil tills färgväljaren byggs.
+                        try await contactsStore.add(projectId: project.id, name: name, role: role, phone: phone, email: email, avatarColor: nil)
                     } catch {
                         print("ContactsListView: addContact error: \(error)")
                     }

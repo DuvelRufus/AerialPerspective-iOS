@@ -462,12 +462,14 @@ private struct ContactPickerPresenter: UIViewControllerRepresentable {
 // MARK: - Add Contact Sheet
 
 struct AddContactSheet: View {
-    let onSave: (String, String?, String?) -> Void
+    /// (name, role, phone, email) — tomma valfria fält levereras som nil.
+    let onSave: (String, String?, String?, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var role = ""
-    @State private var contactInfo = ""
+    @State private var phone = ""
+    @State private var email = ""
     @State private var showPicker = false
 
     var body: some View {
@@ -515,10 +517,24 @@ struct AddContactSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        APSectionHeader(title: "KONTAKTINFO (VALFRITT)")
-                        TextField("E-post, telefon...", text: $contactInfo)
+                        APSectionHeader(title: "TELEFON (VALFRITT)")
+                        TextField("", text: $phone)
                             .textFieldStyle(.plain)
                             .foregroundStyle(.apTextPrimary)
+                            .keyboardType(.phonePad)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "E-POST (VALFRITT)")
+                        TextField("", text: $email)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .keyboardType(.emailAddress)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
                             .padding()
                             .background(Color.apSurface)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -528,7 +544,12 @@ struct AddContactSheet: View {
                     APPillButton(title: "Spara", action: {
                         let trimmed = name.trimmingCharacters(in: .whitespaces)
                         guard !trimmed.isEmpty else { return }
-                        onSave(trimmed, role.isEmpty ? nil : role, contactInfo.isEmpty ? nil : contactInfo)
+                        onSave(
+                            trimmed,
+                            role.isEmpty ? nil : role,
+                            phone.isEmpty ? nil : phone,
+                            email.isEmpty ? nil : email
+                        )
                         dismiss()
                     })
                     .opacity(isDisabled ? 0.5 : 1)
@@ -557,10 +578,13 @@ struct AddContactSheet: View {
                         // Företagskontakt utan person-namn: organisationen är namnet.
                         name = contact.organizationName
                     }
-                    if let phone = contact.phoneNumbers.first?.value.stringValue {
-                        contactInfo = phone
-                    } else if let email = contact.emailAddresses.first?.value {
-                        contactInfo = email as String
+                    // BÅDA fälten fylls — inte antingen/eller som när allt
+                    // landade i ett enda kontaktinfo-fält.
+                    if let pickedPhone = contact.phoneNumbers.first?.value.stringValue {
+                        phone = pickedPhone
+                    }
+                    if let pickedEmail = contact.emailAddresses.first?.value {
+                        email = pickedEmail as String
                     }
                     showPicker = false
                 }
