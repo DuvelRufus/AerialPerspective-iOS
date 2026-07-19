@@ -25,6 +25,7 @@ struct NotesListView: View {
     /// List-ägd så utfällt läge överlever re-renders; vid delete lämnas
     /// id:t kvar i setet — harmlöst, raden renderas aldrig igen.
     @State private var expandedIds: Set<UUID> = []
+    @State private var editingNote: Note? = nil
 
     var body: some View {
         ZStack {
@@ -67,6 +68,20 @@ struct NotesListView: View {
                         .foregroundStyle(Color.apOrange)
                 }
                 .haptic(.medium)
+            }
+        }
+        // Mekanism d på den stabila containern (AssessmentListView-prejudikatet):
+        // pencil-knappen sätter bindingen; SwiftUI nollar den vid pop.
+        .navigationDestination(item: $editingNote) { note in
+            NoteFormView(
+                heading: "Redigera anteckning",
+                title: note.title,
+                body: note.body
+            ) { newTitle, newBody in
+                var updated = note
+                updated.title = newTitle
+                updated.body = newBody
+                Task { await notesStore.update(updated) }
             }
         }
         .sheet(isPresented: $showAddNote) {
@@ -114,21 +129,37 @@ struct NotesListView: View {
 
     private func noteRow(_ note: Note) -> some View {
         let isExpanded = expandedIds.contains(note.id)
-        return VStack(alignment: .leading, spacing: 3) {
-            Text(note.title.isEmpty ? "Utan titel" : note.title)
-                .font(.subheadline.bold())
-                .foregroundStyle(.apTextPrimary)
-            if !note.body.isEmpty {
-                Text(note.body)
-                    .font(.caption)
-                    .foregroundStyle(.apTextSecondary)
-                    .lineLimit(isExpanded ? nil : 2)
+        // Top-alignad så pencil-ikonen ligger still när raden expanderar.
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(note.title.isEmpty ? "Utan titel" : note.title)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.apTextPrimary)
+                if !note.body.isEmpty {
+                    Text(note.body)
+                        .font(.caption)
+                        .foregroundStyle(.apTextSecondary)
+                        .lineLimit(isExpanded ? nil : 2)
+                }
+                Text(RelativeDateTimeFormatter().localizedString(for: note.updatedAt, relativeTo: Date()))
+                    .font(.caption2)
+                    .foregroundStyle(.apTextTertiary)
             }
-            Text(RelativeDateTimeFormatter().localizedString(for: note.updatedAt, relativeTo: Date()))
-                .font(.caption2)
-                .foregroundStyle(.apTextTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Egen Button → hit-precedens över radens tap; triggar aldrig
+            // inline-expanderingen.
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                editingNote = note
+            } label: {
+                Image(systemName: "pencil")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.apTextSecondary)
+            }
+            .buttonStyle(.plain)
+            .minTapTarget()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         // linkRow-prejudikatet: tap samexisterar med apSwipeActions tack
