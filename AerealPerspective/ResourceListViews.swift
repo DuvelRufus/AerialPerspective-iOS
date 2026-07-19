@@ -375,27 +375,50 @@ struct ContactsListView: View {
                         .font(.caption)
                         .foregroundStyle(.apTextSecondary)
                 }
-                if let info = contact.contactInfo, !info.isEmpty {
-                    Text(info)
-                        .font(.caption)
-                        .foregroundStyle(.apTextTertiary)
-                }
             }
             Spacer()
-            // Icke-tappbar indikator; tappbara/separata fält är backlogg.
-            if let icon = contactIndicator(contact.contactInfo) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.apTextTertiary)
+            // CTA-knappar bara för fält som finns — ingen dämpad/inaktiv ikon.
+            HStack(spacing: 8) {
+                if let phone = contact.phone, !phone.isEmpty {
+                    ctaButton(icon: "phone.fill") {
+                        openContactURL("tel:" + phone.filter("0123456789+#*".contains))
+                    }
+                }
+                if let email = contact.email, !email.isEmpty {
+                    ctaButton(icon: "envelope.fill") {
+                        openContactURL("mailto:" + email)
+                    }
+                }
             }
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
     }
 
-    private func contactIndicator(_ info: String?) -> String? {
-        guard let info, !info.isEmpty else { return nil }
-        return info.contains("@") ? "envelope" : "phone"
+    /// 40pt cirkel + orange glyph så den läser som knapp, inte dekor.
+    /// Egen Button med hit-precedens över radens contentShape; haptik i
+    /// closuren, ingen gesture-modifier.
+    private func ctaButton(icon: String, action: @escaping () -> Void) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
+            Circle()
+                .fill(Color.apSurfaceElevated)
+                .frame(width: 40, height: 40)
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(Color.apOrange)
+                }
+        }
+        .buttonStyle(.plain)
+        .minTapTarget()
+    }
+
+    private func openContactURL(_ raw: String) {
+        guard let url = URL(string: raw) else { return }
+        UIApplication.shared.open(url)
     }
 }
 
