@@ -469,14 +469,16 @@ struct ContactFormView: View {
     let heading: String
     /// nil = skapa-läge; annars förifylls fälten och picker-importen döljs.
     let contact: Contact?
-    /// (name, role, phone, email) — tomma valfria fält levereras som nil.
-    let onSave: (String, String?, String?, String?) -> Void
+    /// (name, role, phone, email, avatarColor) — tomma valfria fält
+    /// levereras som nil; avatarColor nil = namn-hash-fallbacken.
+    let onSave: (String, String?, String?, String?, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var role: String
     @State private var phone: String
     @State private var email: String
+    @State private var avatarColor: String?
     @State private var showPicker = false
 
     // Flervalsimport: > 1 kandidater i respektive kanal parkeras här och
@@ -489,7 +491,7 @@ struct ContactFormView: View {
     init(
         heading: String,
         contact: Contact? = nil,
-        onSave: @escaping (String, String?, String?, String?) -> Void
+        onSave: @escaping (String, String?, String?, String?, String?) -> Void
     ) {
         self.heading = heading
         self.contact = contact
@@ -498,6 +500,7 @@ struct ContactFormView: View {
         _role = State(initialValue: contact?.role ?? "")
         _phone = State(initialValue: contact?.phone ?? "")
         _email = State(initialValue: contact?.email ?? "")
+        _avatarColor = State(initialValue: contact?.avatarColor)
     }
 
     var body: some View {
@@ -569,6 +572,20 @@ struct ContactFormView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
+                VStack(alignment: .leading, spacing: 8) {
+                    APSectionHeader(title: "FÄRG")
+                    HStack(spacing: 12) {
+                        // Live-preview: nil → hash-fallback som följer namnet
+                        // medan man skriver.
+                        InitialsAvatar(name: name.isEmpty ? "?" : name, colorHex: avatarColor, size: 40)
+                        HStack(spacing: 8) {
+                            ForEach(AvatarPalette.hexes, id: \.self) { hex in
+                                colorDot(hex)
+                            }
+                        }
+                    }
+                }
+
                 let isDisabled = name.trimmingCharacters(in: .whitespaces).isEmpty
                 APPillButton(title: "Spara", action: {
                     let trimmed = name.trimmingCharacters(in: .whitespaces)
@@ -577,7 +594,8 @@ struct ContactFormView: View {
                         trimmed,
                         role.isEmpty ? nil : role,
                         phone.isEmpty ? nil : phone,
-                        email.isEmpty ? nil : email
+                        email.isEmpty ? nil : email,
+                        avatarColor
                     )
                     dismiss()
                 })
@@ -661,6 +679,31 @@ struct ContactFormView: View {
         }
     }
 
+    /// Tap väljer; tap på redan vald prick avmarkerar → tillbaka till
+    /// namn-hash-fallbacken (beslut).
+    private func colorDot(_ hex: String) -> some View {
+        let isSelected = avatarColor == hex
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                avatarColor = isSelected ? nil : hex
+            }
+        } label: {
+            Circle()
+                .fill(Color(hex: hex))
+                .frame(width: 24, height: 24)
+                .overlay {
+                    if isSelected {
+                        Circle()
+                            .strokeBorder(Color.apTextPrimary, lineWidth: 2)
+                            .padding(-4)
+                    }
+                }
+                .scaleEffect(isSelected ? 1.15 : 1)
+        }
+        .buttonStyle(.plain)
+    }
+
     /// Behåller första förekomsten av varje värde, i ursprunglig ordning.
     private func orderedUnique(_ values: [String]) -> [String] {
         var seen = Set<String>()
@@ -673,7 +716,7 @@ struct ContactFormView: View {
 /// Skapa-läget: quick-capture-sheet med egen NavigationStack. Redigera-läget
 /// pushar ContactFormView direkt i projektstacken i stället.
 struct AddContactSheet: View {
-    let onSave: (String, String?, String?, String?) -> Void
+    let onSave: (String, String?, String?, String?, String?) -> Void
 
     var body: some View {
         NavigationStack {
