@@ -62,20 +62,18 @@ private struct NewContact: Encodable {
 private enum DeleteIntent {
     case link(ProjectLink)
     case contact(Contact)
-    case note
 
     var title: String {
         switch self {
         case .link(let l):    return "Radera \"\(l.title)\"?"
         case .contact(let c): return "Radera \"\(c.name)\"?"
-        case .note:           return "Rensa anteckningen?"
         }
     }
 }
 
 struct OvrigtView: View {
     var project: Project
-    @Bindable var noteStore: NoteStore
+    var notesStore: NotesStore
 
     // Data
     @State private var links: [ProjectLink] = []
@@ -132,6 +130,7 @@ struct OvrigtView: View {
                 .onAppear { cardsRevealed = true }
             }
             .refreshable {
+                await notesStore.fetch(projectId: project.id)
                 await fetchLinks()
                 await fetchContacts()
             }
@@ -140,15 +139,9 @@ struct OvrigtView: View {
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .task {
-            if !noteStore.isLoaded {
-                await noteStore.fetch(projectId: project.id)
-            }
+            await notesStore.fetch(projectId: project.id)
             await fetchLinks()
             await fetchContacts()
-        }
-        .onChange(of: noteStore.content) { _, _ in
-            guard noteStore.isLoaded else { return }
-            noteStore.scheduleSave()
         }
         .sheet(isPresented: $showAddLink) {
             AddLinkSheet { title, url, category in
@@ -289,86 +282,53 @@ struct OvrigtView: View {
 
     // MARK: - Notes section
 
-    /// "senast ändrad HH:MM" — only when a save has happened this session;
-    /// NoteStore doesn't expose the persisted updated_at, so no value = no text.
-    private var noteSubtitle: String? {
-        if case .saved(let date) = noteStore.status {
-            return "senast ändrad \(date.formatted(date: .omitted, time: .shortened))"
-        }
-        return nil
-    }
-
+    /// Temporär stub tills layout-steget: titel-lista, ingen add-knapp.
+    /// Den riktiga fleranteckning-UI:n (kort, add-sheet, delete) byggs där.
     private var notesSection: some View {
         glassSection {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
                     title: "ANTECKNINGAR",
                     icon: "note.text",
-                    subtitle: noteSubtitle,
-                    count: nil,
+                    count: notesStore.notes.isEmpty ? nil : notesStore.notes.count,
                     isExpanded: notesExpanded,
                     pulse: $notesPulsing,
                     onAdd: nil
                 ) { notesExpanded.toggle() }
-                .contextMenu {
-                    Button(role: .destructive) {
-                        pendingDelete = .note
-                    } label: {
-                        Label("Rensa anteckning", systemImage: "trash")
-                    }
-                }
 
                 if notesExpanded {
-                    // Layout-identical grouping (outer VStack is spacing 0 too);
-                    // exists so the body gets an explicit fade instead of the
-                    // default insertion pop while the card height springs open.
+                    // Same layout-identical wrapper + fade as links/contacts so
+                    // all three cards reveal identically.
                     VStack(alignment: .leading, spacing: 0) {
-                        Divider()
-                            .background(Color.apHairline)
-                            .padding(.vertical, 10)
-
-                        ZStack(alignment: .topLeading) {
-                            if noteStore.content.isEmpty {
-                                Text("Skriv projektdokumentation, beslut, arkitektur...")
-                                    .font(.body)
-                                    .foregroundStyle(.apTextTertiary)
-                                    .padding(.top, 8)
-                                    .padding(.leading, 4)
-                                    .allowsHitTesting(false)
+                        if notesStore.notes.isEmpty {
+                            Text("Inga anteckningar ännu")
+                                .font(.caption)
+                                .foregroundStyle(.apTextTertiary)
+                                .padding(.top, 12)
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(notesStore.notes) { note in
+                                    noteRow(note)
+                                    if note.id != notesStore.notes.last?.id {
+                                        Divider().background(Color.apHairline)
+                                    }
+                                }
                             }
-                            TextEditor(text: $noteStore.content)
-                                .font(.body)
-                                .foregroundStyle(.apTextPrimary)
-                                .scrollContentBackground(.hidden)
-                                .background(Color.clear)
-                                .frame(height: 220)
+                            .padding(.top, 10)
                         }
-
-                        HStack {
-                            Spacer()
-                            switch noteStore.status {
-                            case .idle:
-                                EmptyView()
-                            case .saving:
-                                Text("Sparar...")
-                                    .font(.caption)
-                                    .foregroundStyle(.apTextTertiary)
-                            case .saved(let date):
-                                Text("Sparat \(date.formatted(date: .omitted, time: .shortened))")
-                                    .font(.caption)
-                                    .foregroundStyle(.apTextTertiary)
-                            case .failed:
-                                Text("Kunde inte spara – ändringar osparade")
-                                    .font(.caption)
-                                    .foregroundStyle(.apRisk)
-                            }
-                        }
-                        .padding(.top, 4)
                     }
                     .transition(.opacity)
                 }
             }
         }
+    }
+
+    private func noteRow(_ note: Note) -> some View {
+        Text(note.title.isEmpty ? "Utan titel" : note.title)
+            .font(.subheadline.bold())
+            .foregroundStyle(.apTextPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
     }
 
     // MARK: - Links section
@@ -594,8 +554,6 @@ struct OvrigtView: View {
             case .contact(let c):
                 try await supabase.from("contacts").delete().eq("id", value: c.id).execute()
                 contacts.removeAll { $0.id == c.id }
-            case .note:
-                await noteStore.clear()
             }
         } catch {
             print("OvrigtView: delete error: \(error)")
