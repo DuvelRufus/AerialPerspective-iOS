@@ -86,6 +86,7 @@ struct OvrigtView: View {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.apTextTertiary)
+                        .lineLimit(1)
                 }
             }
             Spacer()
@@ -98,15 +99,18 @@ struct OvrigtView: View {
 
     // MARK: - Notes section
 
-    /// "N anteckningar · senast för 2 dagar sedan" — fetch ordnar
-    /// updated_at desc, så first är senast ändrad.
+    /// "Senast: <senaste anteckningens titel>" — notes.first är senast ändrad
+    /// (fetch ordnar updated_at desc). Titel-fallback: första raden av body,
+    /// annars "Utan titel".
     private var notesSubtitle: String {
-        let n = notesStore.notes.count
-        guard n > 0, let latest = notesStore.notes.first?.updatedAt else {
-            return "Inga anteckningar ännu"
-        }
-        let rel = RelativeDateTimeFormatter().localizedString(for: latest, relativeTo: Date())
-        return "\(n) anteckning\(n == 1 ? "" : "ar") · senast \(rel)"
+        guard let latest = notesStore.notes.first else { return "Inga anteckningar ännu" }
+        let title = latest.title.trimmingCharacters(in: .whitespaces)
+        if !title.isEmpty { return "Senast: \(title)" }
+        let firstBodyLine = latest.body
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .newlines)
+            .first ?? ""
+        return "Senast: \(firstBodyLine.isEmpty ? "Utan titel" : firstBodyLine)"
     }
 
     private var notesSection: some View {
