@@ -472,6 +472,13 @@ struct AddContactSheet: View {
     @State private var email = ""
     @State private var showPicker = false
 
+    // Flervalsimport: > 1 kandidater i respektive kanal parkeras här och
+    // avgörs i varsin confirmationDialog (telefon först, sedan mail).
+    @State private var phoneChoices: [String] = []
+    @State private var emailChoices: [String] = []
+    @State private var showPhoneChoice = false
+    @State private var showEmailChoice = false
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -578,17 +585,64 @@ struct AddContactSheet: View {
                         // Företagskontakt utan person-namn: organisationen är namnet.
                         name = contact.organizationName
                     }
-                    // BÅDA fälten fylls — inte antingen/eller som när allt
-                    // landade i ett enda kontaktinfo-fält.
-                    if let pickedPhone = contact.phoneNumbers.first?.value.stringValue {
-                        phone = pickedPhone
-                    }
-                    if let pickedEmail = contact.emailAddresses.first?.value {
-                        email = pickedEmail as String
-                    }
+                    // Ett värde → tyst autofyll; flera → dialog per kanal.
+                    // Dedupe med bevarad ordning — dubblettsträngar skulle
+                    // kollidera i ForEach(id: \.self).
+                    let phones = orderedUnique(contact.phoneNumbers.map { $0.value.stringValue })
+                    let emails = orderedUnique(contact.emailAddresses.map { $0.value as String })
+                    if phones.count == 1 { phone = phones[0] }
+                    if emails.count == 1 { email = emails[0] }
+                    phoneChoices = phones.count > 1 ? phones : []
+                    emailChoices = emails.count > 1 ? emails : []
                     showPicker = false
+                    if !phoneChoices.isEmpty || !emailChoices.isEmpty {
+                        Task {
+                            // Vänta ut pickerns självdismissal — en dialog
+                            // som presenteras mitt i den animationen svälls.
+                            try? await Task.sleep(for: .milliseconds(400))
+                            if !phoneChoices.isEmpty {
+                                showPhoneChoice = true
+                            } else {
+                                showEmailChoice = true
+                            }
+                        }
+                    }
                 }
             }
+            .confirmationDialog("Välj telefonnummer", isPresented: $showPhoneChoice, titleVisibility: .visible) {
+                ForEach(phoneChoices, id: \.self) { number in
+                    Button(number) { phone = number }
+                }
+                Button("Avbryt", role: .cancel) { }   // fältet lämnas orört
+            }
+            // Kedjningen ligger på false-flanken, inte i knapparna: den
+            // träffas av val, Avbryt och tap-utanför likvärdigt, och dialog
+            // #2 direkt i en knapp-action svalts av #1:s dismissal.
+            .onChange(of: showPhoneChoice) { _, isPresented in
+                guard !isPresented else { return }
+                phoneChoices = []
+                if !emailChoices.isEmpty {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(250))
+                        showEmailChoice = true
+                    }
+                }
+            }
+            .confirmationDialog("Välj e-postadress", isPresented: $showEmailChoice, titleVisibility: .visible) {
+                ForEach(emailChoices, id: \.self) { address in
+                    Button(address) { email = address }
+                }
+                Button("Avbryt", role: .cancel) { }   // fältet lämnas orört
+            }
+            .onChange(of: showEmailChoice) { _, isPresented in
+                if !isPresented { emailChoices = [] }
+            }
         }
+    }
+
+    /// Behåller första förekomsten av varje värde, i ursprunglig ordning.
+    private func orderedUnique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
     }
 }
