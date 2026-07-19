@@ -216,7 +216,7 @@ struct APCard<Content: View>: View {
         content()
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial)
+            .background(Color.apSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(Color.apHairline, lineWidth: 0.5)
