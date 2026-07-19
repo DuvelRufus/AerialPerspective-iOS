@@ -76,19 +76,21 @@ struct NotesListView: View {
             NoteFormView(
                 heading: "Redigera anteckning",
                 title: note.title,
-                body: note.body
-            ) { newTitle, newBody in
+                body: note.body,
+                tags: note.tags
+            ) { newTitle, newBody, newTags in
                 var updated = note
                 updated.title = newTitle
                 updated.body = newBody
+                updated.tags = newTags
                 Task { await notesStore.update(updated) }
             }
         }
         .sheet(isPresented: $showAddNote) {
-            AddNoteSheet { title, body in
+            AddNoteSheet { title, body, tags in
                 Task {
                     do {
-                        try await notesStore.add(projectId: project.id, title: title, body: body)
+                        try await notesStore.add(projectId: project.id, title: title, body: body, tags: tags)
                     } catch {
                         print("NotesListView: addNote error: \(error)")
                     }
@@ -498,22 +500,26 @@ private struct ResourceEmptyState: View {
 /// add eller update. dismiss() stänger sheeten respektive poppar pushen.
 private struct NoteFormView: View {
     let heading: String
-    let onSave: (String, String) -> Void
+    let onSave: (String, String, [String]) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var noteBody: String
+    @State private var tags: [String]
+    @State private var tagInput = ""
 
     init(
         heading: String,
         title: String = "",
         body: String = "",
-        onSave: @escaping (String, String) -> Void
+        tags: [String] = [],
+        onSave: @escaping (String, String, [String]) -> Void
     ) {
         self.heading = heading
         self.onSave = onSave
         _title = State(initialValue: title)
         _noteBody = State(initialValue: body)
+        _tags = State(initialValue: tags)
     }
 
     var body: some View {
@@ -552,11 +558,63 @@ private struct NoteFormView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
+                VStack(alignment: .leading, spacing: 8) {
+                    APSectionHeader(title: "TAGGAR (VALFRITT)")
+                    HStack(spacing: 8) {
+                        TextField("Lägg till tagg...", text: $tagInput)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .onSubmit { addTag() }
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            addTag()
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(Color.apOrange)
+                        }
+                        .buttonStyle(.plain)
+                        .minTapTarget()
+                    }
+                    if !tags.isEmpty {
+                        FlowLayout(spacing: 8) {
+                            ForEach(tags, id: \.self) { tag in
+                                // Hela chipen tar bort taggen; x:et är affordansen.
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    withAnimation(.easeInOut) {
+                                        tags.removeAll { $0 == tag }
+                                    }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Text(tag)
+                                            .font(.caption2)
+                                            .foregroundStyle(.apTextPrimary)
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(.apTextTertiary)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(Color.apSurfaceElevated)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+
                 let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
                 APPillButton(title: "Spara", action: {
                     let t = title.trimmingCharacters(in: .whitespaces)
                     guard !t.isEmpty else { return }
-                    onSave(t, noteBody)
+                    onSave(t, noteBody, tags)
                     dismiss()
                 })
                 .opacity(isDisabled ? 0.5 : 1)
@@ -573,6 +631,58 @@ private struct NoteFormView: View {
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
     }
+
+    /// Trimmar, ignorerar tomt, dedupar case-insensitive.
+    private func addTag() {
+        let trimmed = tagInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !tags.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
+        else {
+            tagInput = ""
+            return
+        }
+        withAnimation(.easeInOut) { tags.append(trimmed) }
+        tagInput = ""
+    }
+}
+
+// MARK: - Flow layout
+
+/// Minimal wrap-layout för tagg-chips (formulär + rader): radbryt när nästa
+/// chip inte ryms, radhöjd = högsta chip i raden.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: proposal.width ?? x, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
 }
 
 // MARK: - Add Note Sheet
@@ -580,7 +690,7 @@ private struct NoteFormView: View {
 /// Skapa-läget: quick-capture-sheet med egen NavigationStack. Redigera-läget
 /// pushar NoteFormView direkt i projektstacken i stället.
 private struct AddNoteSheet: View {
-    let onSave: (String, String) -> Void
+    let onSave: (String, String, [String]) -> Void
 
     var body: some View {
         NavigationStack {

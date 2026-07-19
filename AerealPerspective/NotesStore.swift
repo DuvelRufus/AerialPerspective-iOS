@@ -41,6 +41,7 @@ private struct NewNote: Encodable {
 private struct NoteUpdate: Encodable {
     let title: String
     let body: String
+    let tags: [String]
 }
 
 // MARK: - NotesStore
@@ -77,10 +78,10 @@ class NotesStore {
         }
     }
 
-    func add(projectId: UUID, title: String, body: String) async throws {
+    func add(projectId: UUID, title: String, body: String, tags: [String]) async throws {
         let inserted: Note = try await supabase
             .from("notes")
-            .insert(NewNote(project_id: projectId, title: title, body: body, tags: []))
+            .insert(NewNote(project_id: projectId, title: title, body: body, tags: tags))
             .select()
             .single()
             .execute()
@@ -97,10 +98,11 @@ class NotesStore {
         let original = notes[index]
         notes[index].title = note.title
         notes[index].body = note.body
+        notes[index].tags = note.tags
         do {
             let updated: Note = try await supabase
                 .from("notes")
-                .update(NoteUpdate(title: note.title, body: note.body))
+                .update(NoteUpdate(title: note.title, body: note.body, tags: note.tags))
                 .eq("id", value: note.id)
                 .select()
                 .single()
