@@ -510,106 +510,107 @@ struct ContactFormView: View {
     var body: some View {
         ZStack {
             Color.apBackground.ignoresSafeArea()
-            VStack(spacing: 16) {
-                if contact == nil {
-                    Button {
-                        showPicker = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.system(size: 16, weight: .medium))
-                            Text("Välj från kontakter")
-                                .font(.subheadline.weight(.semibold))
+            ScrollView {
+                VStack(spacing: 16) {
+                    if contact == nil {
+                        Button {
+                            showPicker = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.system(size: 16, weight: .medium))
+                                Text("Välj från kontakter")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .foregroundStyle(Color.apOrange)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .contentShape(Rectangle())
                         }
-                        .foregroundStyle(Color.apOrange)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.apSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .haptic(.light)
                     }
-                    .buttonStyle(.plain)
-                    .haptic(.light)
-                }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    APSectionHeader(title: "NAMN")
-                    TextField("", text: $name)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.apTextPrimary)
-                        .padding()
-                        .background(Color.apSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "NAMN")
+                        TextField("", text: $name)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    APSectionHeader(title: "ROLL (VALFRITT)")
-                    TextField("", text: $role)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.apTextPrimary)
-                        .padding()
-                        .background(Color.apSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "ROLL (VALFRITT)")
+                        TextField("", text: $role)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    APSectionHeader(title: "TELEFON (VALFRITT)")
-                    TextField("", text: $phone)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.apTextPrimary)
-                        .keyboardType(.phonePad)
-                        .padding()
-                        .background(Color.apSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "TELEFON (VALFRITT)")
+                        TextField("", text: $phone)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .keyboardType(.phonePad)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    APSectionHeader(title: "E-POST (VALFRITT)")
-                    TextField("", text: $email)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.apTextPrimary)
-                        .keyboardType(.emailAddress)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .padding()
-                        .background(Color.apSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "E-POST (VALFRITT)")
+                        TextField("", text: $email)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(.apTextPrimary)
+                            .keyboardType(.emailAddress)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .padding()
+                            .background(Color.apSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    APSectionHeader(title: "FÄRG")
-                    HStack(spacing: 12) {
-                        // Live-preview: nil → hash-fallback som följer namnet
-                        // medan man skriver.
-                        InitialsAvatar(name: name.isEmpty ? "?" : name, colorHex: avatarColor, size: 40)
-                        HStack(spacing: 8) {
-                            ForEach(AvatarPalette.hexes, id: \.self) { hex in
-                                colorDot(hex)
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "FÄRG")
+                        HStack(spacing: 12) {
+                            // Live-preview: nil → hash-fallback som följer namnet
+                            // medan man skriver.
+                            InitialsAvatar(name: name.isEmpty ? "?" : name, colorHex: avatarColor, size: 40)
+                            HStack(spacing: 8) {
+                                ForEach(AvatarPalette.hexes, id: \.self) { hex in
+                                    colorDot(hex)
+                                }
                             }
                         }
                     }
+
+                    let isDisabled = name.trimmingCharacters(in: .whitespaces).isEmpty
+                    APPillButton(title: "Spara", action: {
+                        let trimmed = name.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty else { return }
+                        onSave(
+                            trimmed,
+                            role.isEmpty ? nil : role,
+                            phone.isEmpty ? nil : phone,
+                            email.isEmpty ? nil : email,
+                            avatarColor
+                        )
+                        dismiss()
+                    })
+                    .opacity(isDisabled ? 0.5 : 1)
+                    .disabled(isDisabled)
+
+                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
                 }
-
-                let isDisabled = name.trimmingCharacters(in: .whitespaces).isEmpty
-                APPillButton(title: "Spara", action: {
-                    let trimmed = name.trimmingCharacters(in: .whitespaces)
-                    guard !trimmed.isEmpty else { return }
-                    onSave(
-                        trimmed,
-                        role.isEmpty ? nil : role,
-                        phone.isEmpty ? nil : phone,
-                        email.isEmpty ? nil : email,
-                        avatarColor
-                    )
-                    dismiss()
-                })
-                .opacity(isDisabled ? 0.5 : 1)
-                .disabled(isDisabled)
-
-                APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
-                Spacer()
+                .padding()
             }
-            .padding()
         }
         .navigationTitle(heading)
         .navigationBarTitleDisplayMode(.inline)

@@ -569,105 +569,106 @@ private struct NoteFormView: View {
     var body: some View {
         ZStack {
             Color.apBackground.ignoresSafeArea()
-            VStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    APSectionHeader(title: "TITEL")
-                    TextField("", text: $title)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.apTextPrimary)
-                        .padding()
-                        .background(Color.apSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    APSectionHeader(title: "ANTECKNING")
-                    ZStack(alignment: .topLeading) {
-                        if noteBody.isEmpty {
-                            Text("Skriv...")
-                                .font(.body)
-                                .foregroundStyle(.apTextTertiary)
-                                .padding(.top, 16)
-                                .padding(.leading, 13)
-                                .allowsHitTesting(false)
-                        }
-                        TextEditor(text: $noteBody)
-                            .font(.body)
-                            .foregroundStyle(.apTextPrimary)
-                            .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .frame(height: 180)
-                    }
-                    .background(Color.apSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    APSectionHeader(title: "TAGGAR (VALFRITT)")
-                    HStack(spacing: 8) {
-                        TextField("Lägg till tagg...", text: $tagInput)
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "TITEL")
+                        TextField("", text: $title)
                             .textFieldStyle(.plain)
                             .foregroundStyle(.apTextPrimary)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                            .onSubmit { addTag() }
                             .padding()
                             .background(Color.apSurface)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
-                        Button {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            addTag()
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(Color.apOrange)
-                        }
-                        .buttonStyle(.plain)
-                        .minTapTarget()
                     }
-                    if !tags.isEmpty {
-                        FlowLayout(spacing: 8) {
-                            ForEach(tags, id: \.self) { tag in
-                                // Hela chipen tar bort taggen; x:et är affordansen.
-                                Button {
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    withAnimation(.easeInOut) {
-                                        tags.removeAll { $0 == tag }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "ANTECKNING")
+                        ZStack(alignment: .topLeading) {
+                            if noteBody.isEmpty {
+                                Text("Skriv...")
+                                    .font(.body)
+                                    .foregroundStyle(.apTextTertiary)
+                                    .padding(.top, 16)
+                                    .padding(.leading, 13)
+                                    .allowsHitTesting(false)
+                            }
+                            TextEditor(text: $noteBody)
+                                .font(.body)
+                                .foregroundStyle(.apTextPrimary)
+                                .scrollContentBackground(.hidden)
+                                .padding(8)
+                                .frame(height: 180)
+                        }
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "TAGGAR (VALFRITT)")
+                        HStack(spacing: 8) {
+                            TextField("Lägg till tagg...", text: $tagInput)
+                                .textFieldStyle(.plain)
+                                .foregroundStyle(.apTextPrimary)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .onSubmit { addTag() }
+                                .padding()
+                                .background(Color.apSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                addTag()
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(Color.apOrange)
+                            }
+                            .buttonStyle(.plain)
+                            .minTapTarget()
+                        }
+                        if !tags.isEmpty {
+                            FlowLayout(spacing: 8) {
+                                ForEach(tags, id: \.self) { tag in
+                                    // Hela chipen tar bort taggen; x:et är affordansen.
+                                    Button {
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                        withAnimation(.easeInOut) {
+                                            tags.removeAll { $0 == tag }
+                                        }
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Text(tag)
+                                                .font(.caption2)
+                                                .foregroundStyle(.apTextPrimary)
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 9, weight: .semibold))
+                                                .foregroundStyle(.apTextTertiary)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(Color.apSurfaceElevated)
+                                        .clipShape(Capsule())
                                     }
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Text(tag)
-                                            .font(.caption2)
-                                            .foregroundStyle(.apTextPrimary)
-                                        Image(systemName: "xmark")
-                                            .font(.system(size: 9, weight: .semibold))
-                                            .foregroundStyle(.apTextTertiary)
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
-                                    .background(Color.apSurfaceElevated)
-                                    .clipShape(Capsule())
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
+
+                    let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
+                    APPillButton(title: "Spara", action: {
+                        let t = title.trimmingCharacters(in: .whitespaces)
+                        guard !t.isEmpty else { return }
+                        onSave(t, noteBody, tags)
+                        dismiss()
+                    })
+                    .opacity(isDisabled ? 0.5 : 1)
+                    .disabled(isDisabled)
+
+                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
                 }
-
-                let isDisabled = title.trimmingCharacters(in: .whitespaces).isEmpty
-                APPillButton(title: "Spara", action: {
-                    let t = title.trimmingCharacters(in: .whitespaces)
-                    guard !t.isEmpty else { return }
-                    onSave(t, noteBody, tags)
-                    dismiss()
-                })
-                .opacity(isDisabled ? 0.5 : 1)
-                .disabled(isDisabled)
-
-                APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
-                Spacer()
+                .padding()
             }
-            .padding()
         }
         .navigationTitle(heading)
         .navigationBarTitleDisplayMode(.inline)
