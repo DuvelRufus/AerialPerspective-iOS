@@ -10,20 +10,6 @@ import UIKit
 import SwiftUI
 import ContactsUI
 
-// MARK: - Delete intent
-
-private enum DeleteIntent {
-    case link(ProjectLink)
-    case contact(Contact)
-
-    var title: String {
-        switch self {
-        case .link(let l):    return "Radera \"\(l.title)\"?"
-        case .contact(let c): return "Radera \"\(c.name)\"?"
-        }
-    }
-}
-
 struct OvrigtView: View {
     var project: Project
     var notesStore: NotesStore
@@ -34,28 +20,10 @@ struct OvrigtView: View {
     @State private var showAddLink = false
     @State private var showAddContact = false
 
-    // Expand state
-    @State private var notesExpanded = false
-    @State private var linksExpanded = false
-    @State private var contactsExpanded = false
-
-    @State private var pendingDelete: DeleteIntent? = nil
-
     // Entrance: cards fade + slide in staggered, same idiom as ResultView.
     // Once per view instance — segment switches recreate the view, so the
     // entrance replays each time the tab becomes visible.
     @State private var cardsRevealed = false
-
-    // Transient per-card glow pulse: flipped true on toggle-tap, auto-reset
-    // ~90 ms later by the header action so the flash never lingers.
-    @State private var notesPulsing = false
-    @State private var linksPulsing = false
-    @State private var contactsPulsing = false
-
-    // Swipe-to-delete: id of the link row whose delete affordance is revealed.
-    // Parent-owned so opening one row snaps every other row closed.
-    @State private var openSwipeLinkId: UUID? = nil
-    @State private var openSwipeContactId: UUID? = nil
 
     // MARK: Body
 
@@ -64,16 +32,13 @@ struct OvrigtView: View {
             Color.apBackground.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    APSectionHeader(title: "ÖVRIGT")
+                    APSectionHeader(title: "RESOURCES")
                         .padding(.top, 12)
                     notesSection
-                        .modifier(GlowPulse(active: notesPulsing))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 0))
                     linksSection
-                        .modifier(GlowPulse(active: linksPulsing))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 1))
                     contactsSection
-                        .modifier(GlowPulse(active: contactsPulsing))
                         .modifier(CardEntrance(revealed: cardsRevealed, index: 2))
                 }
                 .padding(.horizontal, 16)
@@ -117,33 +82,6 @@ struct OvrigtView: View {
                 }
             }
         }
-        .confirmationDialog(
-            pendingDelete?.title ?? "",
-            isPresented: Binding(
-                get: { pendingDelete != nil },
-                set: {
-                    if !$0 {
-                        pendingDelete = nil
-                        // Cancel or confirm: spring any revealed swipe row shut.
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            openSwipeLinkId = nil
-                            openSwipeContactId = nil
-                        }
-                    }
-                }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Radera", role: .destructive) {
-                guard let intent = pendingDelete else { return }
-                UINotificationFeedbackGenerator().notificationOccurred(.warning)
-                pendingDelete = nil
-                Task { await performDelete(intent) }
-            }
-            Button("Avbryt", role: .cancel) { pendingDelete = nil }
-        } message: {
-            Text("Åtgärden kan inte ångras.")
-        }
     }
 
     // MARK: - Glass card chrome
@@ -169,133 +107,90 @@ struct OvrigtView: View {
 
     // MARK: - Section header
 
-    @ViewBuilder
+    /// Statisk översiktsheader — accordion borta; chevronen pekar mot den
+    /// fulla sektionsvyn (kopplas i delsteg 2). +-knappen har egen Button
+    /// med hit-precedens.
     private func sectionHeader(
         title: String,
         icon: String,
         subtitle: String? = nil,
         count: Int?,
-        isExpanded: Bool,
-        pulse: Binding<Bool>,
-        onAdd: (() -> Void)?,
-        onToggle: @escaping () -> Void
+        onAdd: (() -> Void)?
     ) -> some View {
-        Button {
-            // Haptic + pulse live in the toggle action: once per completed
-            // tap, and the nested +-knappen (own action, hit-testing
-            // precedence) can never trigger them.
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            pulse.wrappedValue = true
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                onToggle()
-            }
-            Task {
-                try? await Task.sleep(for: .milliseconds(90))
-                pulse.wrappedValue = false
-            }
-        } label: {
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 11)
-                    .fill(Color.apOrange.opacity(0.14))
-                    .frame(width: 38, height: 38)
-                    .overlay {
-                        Image(systemName: icon)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.apOrange)
-                    }
-                VStack(alignment: .leading, spacing: 2) {
-                    APSectionHeader(title: title)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.apTextTertiary)
-                    }
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 11)
+                .fill(Color.apOrange.opacity(0.14))
+                .frame(width: 38, height: 38)
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.apOrange)
                 }
-                Spacer()
-                if let count, count > 0 {
-                    Text("\(count)")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.apTextSecondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color.white.opacity(0.07))
-                        .clipShape(Capsule())
+            VStack(alignment: .leading, spacing: 2) {
+                APSectionHeader(title: title)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.apTextTertiary)
                 }
-                if let onAdd {
-                    Button(action: onAdd) {
-                        Image(systemName: "plus")
-                            .foregroundStyle(.apOrange)
-                            .font(.system(size: 15, weight: .medium))
-                    }
-                    .buttonStyle(.plain)
-                    .haptic(.medium)
-                    .minTapTarget()
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.apTextTertiary)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isExpanded)
             }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
+            Spacer()
+            if let count, count > 0 {
+                Text("\(count)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.apTextSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.07))
+                    .clipShape(Capsule())
+            }
+            if let onAdd {
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                        .foregroundStyle(.apOrange)
+                        .font(.system(size: 15, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .haptic(.medium)
+                .minTapTarget()
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.apTextTertiary)
         }
-        .buttonStyle(.plain)
-        .minTapTarget()
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Notes section
 
-    /// Temporär stub tills layout-steget: titel-lista, ingen add-knapp.
-    /// Den riktiga fleranteckning-UI:n (kort, add-sheet, delete) byggs där.
+    /// "N anteckningar · senast för 2 dagar sedan" — fetch ordnar
+    /// updated_at desc, så first är senast ändrad.
+    private var notesSubtitle: String {
+        let n = notesStore.notes.count
+        guard n > 0, let latest = notesStore.notes.first?.updatedAt else {
+            return "Inga anteckningar ännu"
+        }
+        let rel = RelativeDateTimeFormatter().localizedString(for: latest, relativeTo: Date())
+        return "\(n) anteckning\(n == 1 ? "" : "ar") · senast \(rel)"
+    }
+
     private var notesSection: some View {
         glassSection {
-            VStack(alignment: .leading, spacing: 0) {
-                sectionHeader(
-                    title: "ANTECKNINGAR",
-                    icon: "note.text",
-                    count: notesStore.notes.isEmpty ? nil : notesStore.notes.count,
-                    isExpanded: notesExpanded,
-                    pulse: $notesPulsing,
-                    onAdd: nil
-                ) { notesExpanded.toggle() }
-
-                if notesExpanded {
-                    // Same layout-identical wrapper + fade as links/contacts so
-                    // all three cards reveal identically.
-                    VStack(alignment: .leading, spacing: 0) {
-                        if notesStore.notes.isEmpty {
-                            Text("Inga anteckningar ännu")
-                                .font(.caption)
-                                .foregroundStyle(.apTextTertiary)
-                                .padding(.top, 12)
-                        } else {
-                            VStack(spacing: 0) {
-                                ForEach(notesStore.notes) { note in
-                                    noteRow(note)
-                                    if note.id != notesStore.notes.last?.id {
-                                        Divider().background(Color.apHairline)
-                                    }
-                                }
-                            }
-                            .padding(.top, 10)
-                        }
-                    }
-                    .transition(.opacity)
-                }
-            }
+            sectionHeader(
+                title: "ANTECKNINGAR",
+                icon: "note.text",
+                subtitle: notesSubtitle,
+                count: notesStore.notes.isEmpty ? nil : notesStore.notes.count,
+                onAdd: nil
+            )
         }
     }
 
-    private func noteRow(_ note: Note) -> some View {
-        Text(note.title.isEmpty ? "Utan titel" : note.title)
-            .font(.subheadline.bold())
-            .foregroundStyle(.apTextPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 8)
-    }
-
     // MARK: - Links section
+
+    /// Glimten visar max så många chips; resten blir en "+N"-chip —
+    /// fulla listan bor i sektionsvyn (delsteg 2).
+    private static let maxChips = 8
 
     private var linksSection: some View {
         glassSection {
@@ -303,39 +198,27 @@ struct OvrigtView: View {
                 sectionHeader(
                     title: "LÄNKAR",
                     icon: "link",
+                    subtitle: linksStore.links.isEmpty ? "Inga länkar ännu" : nil,
                     count: linksStore.links.isEmpty ? nil : linksStore.links.count,
-                    isExpanded: linksExpanded,
-                    pulse: $linksPulsing,
                     onAdd: { showAddLink = true }
-                ) { linksExpanded.toggle() }
+                )
 
-                if linksExpanded {
-                    // Same layout-identical wrapper + fade as Anteckningar so
-                    // all three cards reveal identically.
-                    VStack(alignment: .leading, spacing: 0) {
-                        if linksStore.links.isEmpty {
-                            Text("Inga länkar ännu")
-                                .font(.caption)
-                                .foregroundStyle(.apTextTertiary)
-                                .padding(.top, 12)
-                        } else {
-                            VStack(spacing: 0) {
-                                ForEach(linksStore.links) { link in
-                                    linkRow(link)
-                                        .apSwipeActions(id: link.id, openId: $openSwipeLinkId, actions: [
-                                            APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
-                                                pendingDelete = .link(link)
-                                            }
-                                        ])
-                                    if link.id != linksStore.links.last?.id {
-                                        Divider().background(Color.apHairline)
-                                    }
-                                }
-                            }
-                            .padding(.top, 10)
+                if !linksStore.links.isEmpty {
+                    FlowLayout(spacing: 8) {
+                        ForEach(linksStore.links.prefix(Self.maxChips)) { link in
+                            linkChip(link)
+                        }
+                        if linksStore.links.count > Self.maxChips {
+                            Text("+\(linksStore.links.count - Self.maxChips)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.apTextSecondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(Color.apSurfaceElevated)
+                                .clipShape(Capsule())
                         }
                     }
-                    .transition(.opacity)
+                    .padding(.top, 10)
                 }
             }
         }
@@ -347,36 +230,67 @@ struct OvrigtView: View {
         LinkURLPolicy.normalized(from: raw)
     }
 
-    private func linkRow(_ link: ProjectLink) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(link.title)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.apOrange)
-                Text(link.url)
-                    .font(.caption)
-                    .foregroundStyle(.apTextTertiary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Text(link.category)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.apOrange)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.apOrangeTint)
-                .clipShape(Capsule())
-        }
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onTapGesture {
+    private func linkChip(_ link: ProjectLink) -> some View {
+        Button {
             guard let url = validatedLinkURL(from: link.url) else { return }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             UIApplication.shared.open(url)
+        } label: {
+            HStack(spacing: 6) {
+                faviconView(link)
+                Text(link.title)
+                    .font(.caption)
+                    .foregroundStyle(.apTextPrimary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.apSurfaceElevated)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// AsyncImage går via shared URLSession → URLCache cachar favicon-svaren.
+    /// Fallback (nil-favicon, laddning, fel): bokstavs-ikon i orange.
+    @ViewBuilder
+    private func faviconView(_ link: ProjectLink) -> some View {
+        if let raw = link.faviconUrl, let url = URL(string: raw) {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFit()
+                } else {
+                    faviconFallback(link)
+                }
+            }
+            .frame(width: 16, height: 16)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else {
+            faviconFallback(link)
+                .frame(width: 16, height: 16)
         }
     }
 
+    private func faviconFallback(_ link: ProjectLink) -> some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color.apOrangeTint)
+            .overlay {
+                if let first = link.title.first {
+                    Text(String(first).uppercased())
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Color.apOrange)
+                } else {
+                    Image(systemName: "link")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Color.apOrange)
+                }
+            }
+    }
+
     // MARK: - Contacts section
+
+    /// Glimten visar max så många avatarer; resten blir en "+N"-bubbla.
+    private static let maxAvatars = 5
 
     private var contactsSection: some View {
         glassSection {
@@ -384,90 +298,32 @@ struct OvrigtView: View {
                 sectionHeader(
                     title: "KONTAKTER",
                     icon: "person.2.fill",
+                    subtitle: contactsStore.contacts.isEmpty ? "Inga kontakter ännu" : nil,
                     count: contactsStore.contacts.isEmpty ? nil : contactsStore.contacts.count,
-                    isExpanded: contactsExpanded,
-                    pulse: $contactsPulsing,
                     onAdd: { showAddContact = true }
-                ) { contactsExpanded.toggle() }
+                )
 
-                if contactsExpanded {
-                    // Same layout-identical wrapper + fade as Anteckningar so
-                    // all three cards reveal identically.
-                    VStack(alignment: .leading, spacing: 0) {
-                        if contactsStore.contacts.isEmpty {
-                            Text("Inga kontakter ännu")
-                                .font(.caption)
-                                .foregroundStyle(.apTextTertiary)
-                                .padding(.top, 12)
-                        } else {
-                            VStack(spacing: 0) {
-                                ForEach(contactsStore.contacts) { contact in
-                                    contactRow(contact)
-                                        .apSwipeActions(id: contact.id, openId: $openSwipeContactId, actions: [
-                                            APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
-                                                pendingDelete = .contact(contact)
-                                            }
-                                        ])
-                                    if contact.id != contactsStore.contacts.last?.id {
-                                        Divider().background(Color.apHairline)
-                                    }
+                if !contactsStore.contacts.isEmpty {
+                    // Överlappande rad — variantens egen 2px-ring ger separationen.
+                    HStack(spacing: -8) {
+                        ForEach(contactsStore.contacts.prefix(Self.maxAvatars)) { contact in
+                            InitialsAvatar(name: contact.name, colorHex: contact.avatarColor, size: 32)
+                        }
+                        if contactsStore.contacts.count > Self.maxAvatars {
+                            Circle()
+                                .fill(Color.apSurfaceElevated)
+                                .frame(width: 32, height: 32)
+                                .overlay {
+                                    Text("+\(contactsStore.contacts.count - Self.maxAvatars)")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.apTextSecondary)
                                 }
-                            }
-                            .padding(.top, 10)
                         }
                     }
-                    .transition(.opacity)
+                    .padding(.top, 10)
                 }
             }
         }
-    }
-
-    private func contactRow(_ contact: Contact) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(contact.name)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.apTextPrimary)
-                if let role = contact.role, !role.isEmpty {
-                    Text(role)
-                        .font(.caption)
-                        .foregroundStyle(.apTextSecondary)
-                }
-                if let info = contact.contactInfo, !info.isEmpty {
-                    Text(info)
-                        .font(.caption)
-                        .foregroundStyle(.apTextTertiary)
-                }
-            }
-            Spacer()
-        }
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-    }
-
-    // MARK: - Delete
-
-    private func performDelete(_ intent: DeleteIntent) async {
-        // Storarna äger optimistisk removal + rollback; ingen gren kastar.
-        switch intent {
-        case .link(let l):    await linksStore.delete(l)
-        case .contact(let c): await contactsStore.delete(c)
-        }
-    }
-}
-
-// MARK: - Glow pulse
-
-/// One soft apOrange flash tied to a toggle tap: quick ease-in rise while the
-/// transient flag is true, ease-out decay when the header action resets it.
-/// Keyed to its own value so the expand spring can't capture the shadow.
-private struct GlowPulse: ViewModifier {
-    let active: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .shadow(color: Color.apOrange.opacity(active ? 0.3 : 0), radius: 12)
-            .animation(active ? .easeIn(duration: 0.08) : .easeOut(duration: 0.25), value: active)
     }
 }
 
@@ -488,6 +344,45 @@ private struct CardEntrance: ViewModifier {
                     .delay(0.05 + Double(index) * 0.06),
                 value: revealed
             )
+    }
+}
+
+// MARK: - Flow layout
+
+/// Minimal wrap-layout för chip-raden: radbryt när nästa chip inte ryms,
+/// radhöjd = högsta chip i raden. Privat tills fler ytor behöver wrap.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: proposal.width ?? x, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 

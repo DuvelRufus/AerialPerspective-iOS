@@ -264,6 +264,70 @@ struct APSectionHeader: View {
     }
 }
 
+// MARK: - Avatar palette
+
+/// De 8 kurerade avatarfärgerna. Färgväljaren (Resources delsteg 4) skriver
+/// vald hex till contacts.avatar_color; kontakter utan vald färg får
+/// hash-fallbacken.
+enum AvatarPalette {
+    static let hexes = ["#6B5DD3", "#2A9D8F", "#E76F51", "#4A8FBD",
+                        "#E9A23B", "#C05780", "#5B8C5A", "#8A7A9B"]
+
+    /// Deterministisk: samma namn → samma färg, stabilt mellan renders OCH
+    /// appstarter. Swifts hashValue är seedad per process och duger inte —
+    /// därför egen stabil hash över unicode-skalärerna.
+    static func fallbackHex(for name: String) -> String {
+        let h = name.unicodeScalars.reduce(0) { $0 &* 31 &+ Int($1.value) }
+        return hexes[abs(h) % hexes.count]
+    }
+}
+
+// MARK: - InitialsAvatar
+
+/// Variant C: mörk kärna (färgen mörkad ~85 %), 2 px färgad ring, initialer
+/// i färgen ljusad ~35 % för kontrast mot kärnan.
+struct InitialsAvatar: View {
+    let name: String
+    let colorHex: String?
+    var size: CGFloat = 32
+
+    var body: some View {
+        let rgb = Self.rgb(from: colorHex ?? AvatarPalette.fallbackHex(for: name))
+        let core = Color(.sRGB, red: rgb.r * 0.15, green: rgb.g * 0.15, blue: rgb.b * 0.15)
+        let ring = Color(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b)
+        let text = Color(.sRGB, red: rgb.r + (1 - rgb.r) * 0.35,
+                         green: rgb.g + (1 - rgb.g) * 0.35,
+                         blue: rgb.b + (1 - rgb.b) * 0.35)
+        ZStack {
+            Circle().fill(core)
+            Circle().strokeBorder(ring, lineWidth: 2)
+            Text(initials)
+                .font(.system(size: size * 0.36, weight: .semibold))
+                .foregroundStyle(text)
+        }
+        .frame(width: size, height: size)
+    }
+
+    /// Första bokstaven i upp till två namndelar; tomt namn → "?".
+    private var initials: String {
+        let parts = name.split(separator: " ").prefix(2).compactMap(\.first)
+        return parts.isEmpty ? "?" : String(parts).uppercased()
+    }
+
+    /// Hex → (r,g,b) 0–1, samma Scanner-idiom som Color(hex:).
+    /// Ogiltig hex → neutral grå så inget kraschar.
+    private static func rgb(from hex: String) -> (r: Double, g: Double, b: Double) {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        guard cleaned.count == 6, Scanner(string: cleaned).scanHexInt64(&int) else {
+            return (0.5, 0.5, 0.5)
+        }
+        return (Double(int >> 16 & 0xFF) / 255,
+                Double(int >> 8 & 0xFF) / 255,
+                Double(int & 0xFF) / 255)
+    }
+}
+
 // MARK: - Shimmer
 
 // Sweeps a soft highlight band across the modified view's glyphs (masked to
