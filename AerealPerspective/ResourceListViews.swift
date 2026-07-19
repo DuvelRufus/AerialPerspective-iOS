@@ -129,6 +129,17 @@ struct NotesListView: View {
         )
     }
 
+    /// Passiv i detta steg — blir filterknapp när sökfältet landar.
+    private func tagChip(_ tag: String) -> some View {
+        Text(tag)
+            .font(.caption2)
+            .foregroundStyle(.apTextSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.apSurfaceElevated)
+            .clipShape(Capsule())
+    }
+
     private func noteRow(_ note: Note) -> some View {
         let isExpanded = expandedIds.contains(note.id)
         // Top-alignad så pencil-ikonen ligger still när raden expanderar.
@@ -146,6 +157,14 @@ struct NotesListView: View {
                 Text(RelativeDateTimeFormatter().localizedString(for: note.updatedAt, relativeTo: Date()))
                     .font(.caption2)
                     .foregroundStyle(.apTextTertiary)
+                if !note.tags.isEmpty {
+                    FlowLayout(spacing: 6) {
+                        ForEach(note.tags, id: \.self) { tag in
+                            tagChip(tag)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
