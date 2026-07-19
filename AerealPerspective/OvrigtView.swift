@@ -175,15 +175,25 @@ struct OvrigtView: View {
     }
 
     private var notesSection: some View {
-        glassSection {
-            sectionHeader(
-                title: "ANTECKNINGAR",
-                icon: "note.text",
-                subtitle: notesSubtitle,
-                count: notesStore.notes.isEmpty ? nil : notesStore.notes.count,
-                onAdd: nil
-            )
+        // Ren vy-destination-länk (AssessmentListView-prejudikatet): statelöst,
+        // pop ägs av systemet — inget item-bundet som kan desynca.
+        NavigationLink {
+            NotesListView(project: project, notesStore: notesStore)
+        } label: {
+            glassSection {
+                sectionHeader(
+                    title: "ANTECKNINGAR",
+                    icon: "note.text",
+                    subtitle: notesSubtitle,
+                    count: notesStore.notes.isEmpty ? nil : notesStore.notes.count,
+                    onAdd: nil
+                )
+            }
         }
+        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        })
     }
 
     // MARK: - Links section
@@ -193,6 +203,18 @@ struct OvrigtView: View {
     private static let maxChips = 8
 
     private var linksSection: some View {
+        NavigationLink {
+            LinksListView(project: project, linksStore: linksStore)
+        } label: {
+            linksCardLabel
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        })
+    }
+
+    private var linksCardLabel: some View {
         glassSection {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
@@ -237,7 +259,7 @@ struct OvrigtView: View {
             UIApplication.shared.open(url)
         } label: {
             HStack(spacing: 6) {
-                faviconView(link)
+                LinkFavicon(link: link)
                 Text(link.title)
                     .font(.caption)
                     .foregroundStyle(.apTextPrimary)
@@ -251,41 +273,6 @@ struct OvrigtView: View {
         .buttonStyle(.plain)
     }
 
-    /// AsyncImage går via shared URLSession → URLCache cachar favicon-svaren.
-    /// Fallback (nil-favicon, laddning, fel): bokstavs-ikon i orange.
-    @ViewBuilder
-    private func faviconView(_ link: ProjectLink) -> some View {
-        if let raw = link.faviconUrl, let url = URL(string: raw) {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFit()
-                } else {
-                    faviconFallback(link)
-                }
-            }
-            .frame(width: 16, height: 16)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-        } else {
-            faviconFallback(link)
-                .frame(width: 16, height: 16)
-        }
-    }
-
-    private func faviconFallback(_ link: ProjectLink) -> some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(Color.apOrangeTint)
-            .overlay {
-                if let first = link.title.first {
-                    Text(String(first).uppercased())
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color.apOrange)
-                } else {
-                    Image(systemName: "link")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(Color.apOrange)
-                }
-            }
-    }
 
     // MARK: - Contacts section
 
@@ -293,6 +280,18 @@ struct OvrigtView: View {
     private static let maxAvatars = 5
 
     private var contactsSection: some View {
+        NavigationLink {
+            ContactsListView(project: project, contactsStore: contactsStore)
+        } label: {
+            contactsCardLabel
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        })
+    }
+
+    private var contactsCardLabel: some View {
         glassSection {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader(
@@ -347,6 +346,50 @@ private struct CardEntrance: ViewModifier {
     }
 }
 
+// MARK: - Link favicon
+
+/// AsyncImage går via shared URLSession → URLCache cachar favicon-svaren.
+/// Fallback (nil-favicon, laddning, fel): bokstavs-ikon i orange. Delas av
+/// översiktskortets chips (16pt) och LinksListViews rader (28pt).
+struct LinkFavicon: View {
+    let link: ProjectLink
+    var size: CGFloat = 16
+
+    var body: some View {
+        Group {
+            if let raw = link.faviconUrl, let url = URL(string: raw) {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFit()
+                    } else {
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.25))
+    }
+
+    private var fallback: some View {
+        RoundedRectangle(cornerRadius: size * 0.25)
+            .fill(Color.apOrangeTint)
+            .overlay {
+                if let first = link.title.first {
+                    Text(String(first).uppercased())
+                        .font(.system(size: size * 0.56, weight: .semibold))
+                        .foregroundStyle(Color.apOrange)
+                } else {
+                    Image(systemName: "link")
+                        .font(.system(size: size * 0.5, weight: .semibold))
+                        .foregroundStyle(Color.apOrange)
+                }
+            }
+    }
+}
+
 // MARK: - Flow layout
 
 /// Minimal wrap-layout för chip-raden: radbryt när nästa chip inte ryms,
@@ -388,9 +431,10 @@ private struct FlowLayout: Layout {
 
 // MARK: - Link URL policy
 
-/// S7 policy shared by open (linkRow) and save (AddLinkSheet): http(s) only,
-/// scheme-less input ("www.hira.se") normalized to https, everything else nil.
-private enum LinkURLPolicy {
+/// S7 policy shared by open (chips + LinksListView rows) and save
+/// (AddLinkSheet): http(s) only, scheme-less input ("www.hira.se")
+/// normalized to https, everything else nil.
+enum LinkURLPolicy {
     static func normalized(from raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let url = URL(string: trimmed) else { return nil }
@@ -411,7 +455,7 @@ private enum LinkCategory: String, CaseIterable {
     case annat = "Annat"
 }
 
-private struct AddLinkSheet: View {
+struct AddLinkSheet: View {
     let onSave: (String, String, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -538,7 +582,7 @@ private struct ContactPickerPresenter: UIViewControllerRepresentable {
 
 // MARK: - Add Contact Sheet
 
-private struct AddContactSheet: View {
+struct AddContactSheet: View {
     let onSave: (String, String?, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
