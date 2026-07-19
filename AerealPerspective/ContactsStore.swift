@@ -43,6 +43,15 @@ private struct NewContact: Encodable {
     let avatar_color: String?
 }
 
+/// contact_info skrivs aldrig — legacy read-only sedan phone/email-uppdelningen.
+private struct ContactUpdate: Encodable {
+    let name: String
+    let role: String?
+    let phone: String?
+    let email: String?
+    let avatar_color: String?
+}
+
 // MARK: - ContactsStore
 
 @MainActor
@@ -102,6 +111,39 @@ class ContactsStore {
             .execute()
             .value
         contacts.insert(inserted, at: 0)
+    }
+
+    /// Optimistic edit with rollback (NotesStore.update-mönstret): den
+    /// inskickade kopian ersätter elementet direkt, serverraden ersätter på
+    /// bekräftelse, originalet återställs vid fel. Icke-kastande.
+    func update(_ contact: Contact) async {
+        guard let index = contacts.firstIndex(where: { $0.id == contact.id }) else { return }
+        let original = contacts[index]
+        contacts[index] = contact
+        do {
+            let updated: Contact = try await supabase
+                .from("contacts")
+                .update(ContactUpdate(
+                    name: contact.name,
+                    role: contact.role,
+                    phone: contact.phone,
+                    email: contact.email,
+                    avatar_color: contact.avatarColor
+                ))
+                .eq("id", value: contact.id)
+                .select()
+                .single()
+                .execute()
+                .value
+            if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
+                contacts[index] = updated
+            }
+        } catch {
+            if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
+                contacts[index] = original
+            }
+            print("ContactsStore update error: \(error)")
+        }
     }
 
     /// Hard delete with optimistic removal; the row is re-inserted at its
