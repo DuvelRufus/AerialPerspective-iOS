@@ -14,6 +14,7 @@ struct ProjectTabView: View {
     @State private var selectedSection: Int
     @State private var actionStore = ActionStore()
     @State private var notesStore = NotesStore()
+    @State private var linksStore = LinksStore()
 
     private enum Section: Int {
         case assessments = 0
@@ -44,7 +45,7 @@ struct ProjectTabView: View {
                 case .tasks:
                     PlanView(project: project, questionStore: questionStore, actionStore: actionStore)
                 case .resources:
-                    OvrigtView(project: project, notesStore: notesStore)
+                    OvrigtView(project: project, notesStore: notesStore, linksStore: linksStore)
                 }
             }
         }

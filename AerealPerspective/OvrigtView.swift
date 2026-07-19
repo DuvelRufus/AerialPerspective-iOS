@@ -12,20 +12,6 @@ import Supabase
 
 // MARK: - Models
 
-struct ProjectLink: Identifiable, Codable {
-    let id: UUID
-    var projectId: UUID
-    var title: String
-    var url: String
-    var category: String
-    var createdAt: Date
-    enum CodingKeys: String, CodingKey {
-        case id, title, url, category
-        case projectId = "project_id"
-        case createdAt = "created_at"
-    }
-}
-
 struct Contact: Identifiable, Codable {
     let id: UUID
     var projectId: UUID
@@ -42,13 +28,6 @@ struct Contact: Identifiable, Codable {
 }
 
 // MARK: - Insert payloads
-
-private struct NewLink: Encodable {
-    let project_id: UUID
-    let title: String
-    let url: String
-    let category: String
-}
 
 private struct NewContact: Encodable {
     let project_id: UUID
@@ -74,9 +53,9 @@ private enum DeleteIntent {
 struct OvrigtView: View {
     var project: Project
     var notesStore: NotesStore
+    var linksStore: LinksStore
 
     // Data
-    @State private var links: [ProjectLink] = []
     @State private var contacts: [Contact] = []
 
     // Sheets
@@ -131,7 +110,7 @@ struct OvrigtView: View {
             }
             .refreshable {
                 await notesStore.fetch(projectId: project.id)
-                await fetchLinks()
+                await linksStore.fetch(projectId: project.id)
                 await fetchContacts()
             }
         }
@@ -140,12 +119,18 @@ struct OvrigtView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .task {
             await notesStore.fetch(projectId: project.id)
-            await fetchLinks()
+            await linksStore.fetch(projectId: project.id)
             await fetchContacts()
         }
         .sheet(isPresented: $showAddLink) {
             AddLinkSheet { title, url, category in
-                Task { await addLink(title: title, url: url, category: category) }
+                Task {
+                    do {
+                        try await linksStore.add(projectId: project.id, title: title, url: url, category: category)
+                    } catch {
+                        print("OvrigtView: addLink error: \(error)")
+                    }
+                }
             }
         }
         .sheet(isPresented: $showAddContact) {
@@ -339,7 +324,7 @@ struct OvrigtView: View {
                 sectionHeader(
                     title: "LÄNKAR",
                     icon: "link",
-                    count: links.isEmpty ? nil : links.count,
+                    count: linksStore.links.isEmpty ? nil : linksStore.links.count,
                     isExpanded: linksExpanded,
                     pulse: $linksPulsing,
                     onAdd: { showAddLink = true }
@@ -349,21 +334,21 @@ struct OvrigtView: View {
                     // Same layout-identical wrapper + fade as Anteckningar so
                     // all three cards reveal identically.
                     VStack(alignment: .leading, spacing: 0) {
-                        if links.isEmpty {
+                        if linksStore.links.isEmpty {
                             Text("Inga länkar ännu")
                                 .font(.caption)
                                 .foregroundStyle(.apTextTertiary)
                                 .padding(.top, 12)
                         } else {
                             VStack(spacing: 0) {
-                                ForEach(links) { link in
+                                ForEach(linksStore.links) { link in
                                     linkRow(link)
                                         .apSwipeActions(id: link.id, openId: $openSwipeLinkId, actions: [
                                             APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
                                                 pendingDelete = .link(link)
                                             }
                                         ])
-                                    if link.id != links.last?.id {
+                                    if link.id != linksStore.links.last?.id {
                                         Divider().background(Color.apHairline)
                                     }
                                 }
@@ -483,20 +468,6 @@ struct OvrigtView: View {
 
     // MARK: - Fetch
 
-    private func fetchLinks() async {
-        do {
-            links = try await supabase
-                .from("links")
-                .select()
-                .eq("project_id", value: project.id)
-                .order("created_at", ascending: false)
-                .execute()
-                .value
-        } catch {
-            print("OvrigtView: fetchLinks error: \(error)")
-        }
-    }
-
     private func fetchContacts() async {
         do {
             contacts = try await supabase
@@ -512,21 +483,6 @@ struct OvrigtView: View {
     }
 
     // MARK: - Add
-
-    private func addLink(title: String, url: String, category: String) async {
-        do {
-            let inserted: ProjectLink = try await supabase
-                .from("links")
-                .insert(NewLink(project_id: project.id, title: title, url: url, category: category))
-                .select()
-                .single()
-                .execute()
-                .value
-            links.insert(inserted, at: 0)
-        } catch {
-            print("OvrigtView: addLink error: \(error)")
-        }
-    }
 
     private func addContact(name: String, role: String?, contactInfo: String?) async {
         do {
@@ -549,8 +505,8 @@ struct OvrigtView: View {
         do {
             switch intent {
             case .link(let l):
-                try await supabase.from("links").delete().eq("id", value: l.id).execute()
-                links.removeAll { $0.id == l.id }
+                // Storen äger optimistisk removal + rollback; kastar inte.
+                await linksStore.delete(l)
             case .contact(let c):
                 try await supabase.from("contacts").delete().eq("id", value: c.id).execute()
                 contacts.removeAll { $0.id == c.id }
