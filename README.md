@@ -43,9 +43,6 @@ The anon key committed here is a public client key. It grants nothing on its own
 
 The repository is `AerialPerspective-iOS`, the Xcode target is `AerealPerspective` and the bundle identifier is `Axiotis.AerealPerspective`. The misspelling in the target name dates back to the first commit and was kept rather than migrating the bundle identifier.
 
-## Web version
-
-A web client covering the same data lives in a separate repository. It shares this Supabase instance, reimplements the scoring logic against the same question bank, and adds one thing the iOS app does not have: a public form link that lets a team lead answer an assessment without an account.
 
 ## Status
 
