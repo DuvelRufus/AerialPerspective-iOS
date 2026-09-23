@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/32552737/README.md)
 # Aerial Perspective
 
 A native iOS app for assessing team health across six domains, built with SwiftUI and Supabase.
