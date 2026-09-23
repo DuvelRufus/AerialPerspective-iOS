@@ -5,3 +5,4 @@ DerivedData/
 build/
 *.moved-aside
 .swiftpm/
+CLAUDE.md
