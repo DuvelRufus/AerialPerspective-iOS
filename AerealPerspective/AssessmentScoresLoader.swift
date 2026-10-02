@@ -8,17 +8,20 @@
 import Foundation
 import Supabase
 
-/// Lightweight assessments row — id/project/version only, shared by every
+/// Lightweight assessments row — id/project/version/count only, shared by every
 /// score-derivation consumer so the heavy Assessment model (JSONB plan)
 /// never has to decode for scoring.
 struct AssessmentRef: Decodable {
     let id: UUID
     let projectId: UUID
     let version: Int
+    /// Set by a DB trigger at insert; nil on rows predating the column.
+    let questionCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, version
         case projectId = "project_id"
+        case questionCount = "question_count"
     }
 }
 
@@ -29,7 +32,7 @@ struct AssessmentRef: Decodable {
 struct AssessmentScores {
     let questions: [Question]
     let options: [AnswerOption]
-    /// Completed (answered >= question count) assessments per project,
+    /// Completed (answered >= the assessment's question count) assessments per project,
     /// newest version first. Empty when there are no questions.
     let completedByProject: [UUID: [AssessmentRef]]
     let answersByAssessment: [UUID: [UUID: UUID]]
@@ -63,14 +66,19 @@ enum AssessmentScoresLoader {
         if questionStore.questions.isEmpty {
             await questionStore.fetch()
         }
+        // Unfiltered: scoring only counts answered questions, so every
+        // template's questions can back every assessment.
         let questions = questionStore.questions
         let options = questionStore.options
-        let questionCount = questions.count
-        guard questionCount > 0 else { return .empty }
+        guard !questions.isEmpty else { return .empty }
+        // Fallback target for rows without question_count: all of them
+        // predate templates, so they belong to software.
+        let softwareQuestionCount = questionStore
+            .questions(forTemplate: questionStore.softwareTemplateId).count
 
         let assessments: [AssessmentRef] = try await supabase
             .from("assessments")
-            .select("id, project_id, version")
+            .select("id, project_id, version, question_count")
             .execute()
             .value
         guard !assessments.isEmpty else {
@@ -107,7 +115,12 @@ enum AssessmentScoresLoader {
 
         let completedByProject = Dictionary(grouping: assessments, by: { $0.projectId })
             .mapValues { refs in
-                refs.filter { (answersByAssessment[$0.id]?.count ?? 0) >= questionCount }
+                refs.filter { ref in
+                    // > 0 mirrors AssessmentListView.isComplete: a zero
+                    // count must not mark an empty assessment complete.
+                    let target = ref.questionCount ?? softwareQuestionCount
+                    return target > 0 && (answersByAssessment[ref.id]?.count ?? 0) >= target
+                }
                     .sorted { $0.version > $1.version }
             }
 

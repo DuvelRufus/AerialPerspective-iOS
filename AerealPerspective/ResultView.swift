@@ -296,13 +296,16 @@ struct ResultView: View {
         generationError = nil
         isAutoGenerating = true
         defer { isAutoGenerating = false }
+        let context = questionStore.generationContext(for: project)
         do {
             if needsInsights {
                 let generated = try await EdgeFunctionService.generateInsights(
                     scores: domainScores,
                     answers: answerStore.answers,
-                    questions: questionStore.questions,
-                    options: questionStore.options
+                    questions: questionStore.questions(for: project),
+                    options: questionStore.options,
+                    templateName: context.templateName,
+                    domainLabels: context.domainLabels
                 )
                 try await insightStore.save(generated, for: assessment.id)
             }
@@ -310,10 +313,12 @@ struct ResultView: View {
                 let generated = try await EdgeFunctionService.generatePlan(
                     scores: domainScores,
                     answers: answerStore.answers,
-                    questions: questionStore.questions,
+                    questions: questionStore.questions(for: project),
                     options: questionStore.options,
                     durationValue: project.durationValue,
-                    durationUnit: project.durationUnit?.rawValue
+                    durationUnit: project.durationUnit?.rawValue,
+                    templateName: context.templateName,
+                    domainLabels: context.domainLabels
                 )
                 // First generation for this assessment: no anchors to carry.
                 try await planStore.regenerate(
@@ -336,7 +341,7 @@ struct ResultView: View {
         }
         domainScores = ScoringService.compute(
             answers: answerStore.answers,
-            questions: questionStore.questions,
+            questions: questionStore.questions(for: project),
             options: questionStore.options
         )
         hasLoadedScores = true
@@ -363,7 +368,7 @@ struct ResultView: View {
 
             let computed = ScoringService.compute(
                 answers: previousAnswerStore.answers,
-                questions: questionStore.questions,
+                questions: questionStore.questions(for: project),
                 options: questionStore.options
             )
             withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {

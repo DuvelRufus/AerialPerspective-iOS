@@ -38,6 +38,8 @@ struct Project: Identifiable, Codable, Hashable {
     var durationValue: Int?
     var durationUnit: DurationUnit?
     var createdAt: Date
+    /// nil = the software template (QuestionStore.effectiveTemplateId).
+    var templateId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -46,6 +48,7 @@ struct Project: Identifiable, Codable, Hashable {
         case durationValue = "duration_value"
         case durationUnit = "duration_unit"
         case createdAt = "created_at"
+        case templateId = "template_id"
     }
 }
 
@@ -61,12 +64,46 @@ struct Assessment: Identifiable, Codable, Hashable {
     var projectId: UUID
     var version: Int
     var createdAt: Date
+    /// Set by a DB trigger at insert; nil on rows predating the column.
+    var questionCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
         case projectId = "project_id"
         case version
         case createdAt = "created_at"
+        case questionCount = "question_count"
+    }
+}
+
+// MARK: - Template
+
+/// A question template (team type). Questions and projects point at one via
+/// template_id; nil on either side means the "software" template.
+struct Template: Identifiable, Decodable {
+    let id: UUID
+    var key: String
+    var nameSv: String?
+    var nameEn: String?
+    /// Per language, Domain.rawValue → display label: {"sv": {"Tech": "Verktyg"}}.
+    var domainLabels: [String: [String: String]]
+
+    enum CodingKeys: String, CodingKey {
+        case id, key
+        case nameSv = "name_sv"
+        case nameEn = "name_en"
+        case domainLabels = "domain_labels"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        key = try c.decode(String.self, forKey: .key)
+        nameSv = try c.decodeIfPresent(String.self, forKey: .nameSv)
+        nameEn = try c.decodeIfPresent(String.self, forKey: .nameEn)
+        // Missing, null or malformed labels degrade to empty, never a
+        // decoding failure that would drop every template.
+        domainLabels = (try? c.decodeIfPresent([String: [String: String]].self, forKey: .domainLabels)) ?? [:]
     }
 }
 
@@ -78,6 +115,8 @@ struct Question: Identifiable, Codable {
     var questionText: String
     var sortOrder: Int?
     var tooltip: String?
+    /// nil = the software template.
+    var templateId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -85,6 +124,7 @@ struct Question: Identifiable, Codable {
         case questionText = "question_text"
         case sortOrder = "sort_order"
         case tooltip
+        case templateId = "template_id"
     }
 }
 

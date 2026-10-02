@@ -199,7 +199,7 @@ struct AssessmentListView: View {
                         }
                         .padding(.top, 2)
                     } else {
-                        Text("\(answeredCounts[assessment.id] ?? 0)/\(questionStore.questions.count)")
+                        Text("\(answeredCounts[assessment.id] ?? 0)/\(completionTarget(assessment))")
                             .font(.caption)
                             .foregroundStyle(.apTextTertiary)
                     }
@@ -254,8 +254,14 @@ struct AssessmentListView: View {
     }
 
     private func isComplete(_ assessment: Assessment) -> Bool {
-        let total = questionStore.questions.count
+        let total = completionTarget(assessment)
         return total > 0 && (answeredCounts[assessment.id] ?? 0) >= total
+    }
+
+    /// The count frozen on the assessment, or the project template's
+    /// question count on rows predating question_count.
+    private func completionTarget(_ assessment: Assessment) -> Int {
+        assessment.questionCount ?? questionStore.questions(for: project).count
     }
 
     private func fetchAnsweredCounts() async {

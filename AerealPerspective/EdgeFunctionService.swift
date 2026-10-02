@@ -26,6 +26,10 @@ struct EdgeFunctionService {
     private struct InsightsPayload: Encodable {
         let scores: [String: Int]
         let questionsWithAnswers: [[String: String]]
+        // nil (software template) is omitted from the JSON, keeping the
+        // request identical to the pre-template contract.
+        let templateName: String?
+        let domainLabels: [String: String]?
     }
 
     private struct PlanPayload: Encodable {
@@ -36,6 +40,9 @@ struct EdgeFunctionService {
         // nil (first generation) is omitted from the JSON, keeping the
         // request identical to the pre-regeneration contract.
         let currentActions: [CurrentPlanAction]?
+        // nil (software template) is omitted, as currentActions above.
+        let templateName: String?
+        let domainLabels: [String: String]?
     }
 
     // Wrapper matching { "insights": [...] } returned by generate-insights.
@@ -58,11 +65,15 @@ struct EdgeFunctionService {
         scores: [DomainScore],
         answers: [UUID: UUID],
         questions: [Question],
-        options: [AnswerOption]
+        options: [AnswerOption],
+        templateName: String? = nil,
+        domainLabels: [String: String]? = nil
     ) async throws -> [Insight] {
         let payload = InsightsPayload(
             scores: scoreDict(from: scores),
-            questionsWithAnswers: buildQnA(answers: answers, questions: questions, options: options)
+            questionsWithAnswers: buildQnA(answers: answers, questions: questions, options: options),
+            templateName: templateName,
+            domainLabels: domainLabels
         )
 
         let wrapper: InsightsResponse
@@ -106,14 +117,18 @@ struct EdgeFunctionService {
         options: [AnswerOption],
         durationValue: Int?,
         durationUnit: String?,
-        currentActions: [CurrentPlanAction]? = nil
+        currentActions: [CurrentPlanAction]? = nil,
+        templateName: String? = nil,
+        domainLabels: [String: String]? = nil
     ) async throws -> GeneratedPlan {
         let payload = PlanPayload(
             scores: scoreDict(from: scores),
             questionsWithAnswers: buildQnA(answers: answers, questions: questions, options: options),
             durationValue: durationValue,
             durationUnit: durationUnit,
-            currentActions: currentActions
+            currentActions: currentActions,
+            templateName: templateName,
+            domainLabels: domainLabels
         )
 
         let wrapper: PlanResponse

@@ -74,8 +74,23 @@ struct AssessmentView: View {
     @State private var isFinishing = false
     @State private var saveFailed = false
 
+    /// The project template's questions, in domain order.
     var allQuestions: [Question] {
-        questionStore.groupedByDomain.flatMap { $0.questions }
+        questionStore
+            .groupedByDomain(templateId: questionStore.effectiveTemplateId(for: project))
+            .flatMap { $0.questions }
+    }
+
+    /// Answers needed to finish: the count frozen on the assessment at
+    /// creation, or the template's current count on rows predating it.
+    var completionTarget: Int {
+        assessment.questionCount ?? allQuestions.count
+    }
+
+    /// Answered questions of this template (answers to other templates'
+    /// questions can't count toward completion).
+    var answeredCount: Int {
+        allQuestions.filter { answerStore.answers[$0.id] != nil }.count
     }
 
     var currentQuestion: Question? {
@@ -89,7 +104,7 @@ struct AssessmentView: View {
     var domainScores: [DomainScore] {
         ScoringService.compute(
             answers: answerStore.answers,
-            questions: questionStore.questions,
+            questions: questionStore.questions(for: project),
             options: questionStore.options
         )
     }
@@ -130,7 +145,7 @@ struct AssessmentView: View {
             if !allQuestions.isEmpty {
                 let isLast = currentQuestionIndex >= allQuestions.count - 1
                 let unanswered = allQuestions.filter { answerStore.answers[$0.id] == nil }.count
-                let allAnswered = unanswered == 0
+                let allAnswered = answeredCount >= completionTarget
                 VStack(spacing: 6) {
                     HStack(spacing: 12) {
                         APPillButton(title: "Föregående", action: {
@@ -419,7 +434,7 @@ struct AssessmentView: View {
         pendingSaves.removeAll()
         // A rolled-back failure left its question unanswered — re-check
         // instead of trusting the button's enable state from before.
-        guard allQuestions.allSatisfy({ answerStore.answers[$0.id] != nil }) else { return }
+        guard answeredCount >= completionTarget else { return }
         showResult = true
     }
 

@@ -984,7 +984,7 @@ struct PlanView: View {
         await answerStore.fetch(assessmentId: assessment.id)
         domainScores = ScoringService.compute(
             answers: answerStore.answers,
-            questions: questionStore.questions,
+            questions: questionStore.questions(for: project),
             options: questionStore.options
         )
     }
@@ -1014,14 +1014,17 @@ struct PlanView: View {
                 }
             }
 
+            let context = questionStore.generationContext(for: project)
             let generated = try await EdgeFunctionService.generatePlan(
                 scores: domainScores,
                 answers: answerStore.answers,
-                questions: questionStore.questions,
+                questions: questionStore.questions(for: project),
                 options: questionStore.options,
                 durationValue: project.durationValue,
                 durationUnit: project.durationUnit?.rawValue,
-                currentActions: currentActions
+                currentActions: currentActions,
+                templateName: context.templateName,
+                domainLabels: context.domainLabels
             )
             try await planStore.regenerate(
                 assessmentId: target.id,
