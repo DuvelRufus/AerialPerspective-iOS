@@ -83,6 +83,8 @@ struct PlanView: View {
     /// questions; the error state's retry refetches and generates again.
     @State private var unresolvedGenerationTarget: Assessment? = nil
     @State private var showAddSheet = false
+    /// The done action whose completion date is being edited (Datum swipe).
+    @State private var datingAction: ProjectAction? = nil
 
     var body: some View {
         ZStack {
@@ -122,6 +124,11 @@ struct PlanView: View {
                 domainLabel: { questionStore.domainLabel($0, project: project) }
             ) { domain, title in
                 Task { await addManualAction(domain: domain, title: title) }
+            }
+        }
+        .sheet(item: $datingAction) { action in
+            CompletionDateSheet(action: action) { date in
+                try await actionStore.setCompletedDate(actionId: action.id, date: date)
             }
         }
     }
@@ -555,26 +562,39 @@ struct PlanView: View {
         // Ta bort deletes the plan_actions row AND its linked action behind
         // a confirm (deleteFromPlan). Klar stays on the circle tap.
         let state = itemState(item)
+        var actions = [
+            APSwipeAction(
+                title: state == .prio ? "Öppna" : "Prio",
+                systemImage: state == .prio ? "flag.slash" : "flag.fill",
+                color: .apOrange
+            ) {
+                setLinkedState(item, to: state == .prio ? .open : .prio)
+            },
+            APSwipeAction(
+                title: state == .waiting ? "Öppna" : "Vänta",
+                systemImage: state == .waiting ? "clock.badge.xmark" : "clock",
+                color: .apWaiting
+            ) {
+                setLinkedState(item, to: state == .waiting ? .open : .waiting)
+            },
+            APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
+                pendingDelete = .plan(item)
+            }
+        ]
+        // Datum only on a done row with a linked action to date — a
+        // pending (not yet inserted) done item has none.
+        if let linked = linkedAction(item), linked.isDone {
+            actions.insert(dateSwipeAction(linked), at: 2)
+        }
         return rowContent(item)
-            .apSwipeActions(id: item.id, openId: $openSwipeId, actions: [
-                APSwipeAction(
-                    title: state == .prio ? "Öppna" : "Prio",
-                    systemImage: state == .prio ? "flag.slash" : "flag.fill",
-                    color: .apOrange
-                ) {
-                    setLinkedState(item, to: state == .prio ? .open : .prio)
-                },
-                APSwipeAction(
-                    title: state == .waiting ? "Öppna" : "Vänta",
-                    systemImage: state == .waiting ? "clock.badge.xmark" : "clock",
-                    color: .apWaiting
-                ) {
-                    setLinkedState(item, to: state == .waiting ? .open : .waiting)
-                },
-                APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
-                    pendingDelete = .plan(item)
-                }
-            ])
+            .apSwipeActions(id: item.id, openId: $openSwipeId, actions: actions)
+    }
+
+    /// Opens the completion-date sheet for a done action.
+    private func dateSwipeAction(_ action: ProjectAction) -> APSwipeAction {
+        APSwipeAction(title: "Datum", systemImage: "calendar", color: .apStrong) {
+            datingAction = action
+        }
     }
 
     /// Unlinked action row (manual / insight-created). Prio/Vänta TOGGLE the
@@ -583,26 +603,30 @@ struct PlanView: View {
     /// plan_actions row to SET NULL).
     private func actionRow(_ action: ProjectAction) -> some View {
         let state = action.taskState
+        var actions = [
+            APSwipeAction(
+                title: state == .prio ? "Öppna" : "Prio",
+                systemImage: state == .prio ? "flag.slash" : "flag.fill",
+                color: .apOrange
+            ) {
+                Task { await actionStore.setState(action, to: state == .prio ? .open : .prio) }
+            },
+            APSwipeAction(
+                title: state == .waiting ? "Öppna" : "Vänta",
+                systemImage: state == .waiting ? "clock.badge.xmark" : "clock",
+                color: .apWaiting
+            ) {
+                Task { await actionStore.setState(action, to: state == .waiting ? .open : .waiting) }
+            },
+            APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
+                pendingDelete = .action(action)
+            }
+        ]
+        if action.isDone {
+            actions.insert(dateSwipeAction(action), at: 2)
+        }
         return actionRowContent(action)
-            .apSwipeActions(id: action.id, openId: $openSwipeId, actions: [
-                APSwipeAction(
-                    title: state == .prio ? "Öppna" : "Prio",
-                    systemImage: state == .prio ? "flag.slash" : "flag.fill",
-                    color: .apOrange
-                ) {
-                    Task { await actionStore.setState(action, to: state == .prio ? .open : .prio) }
-                },
-                APSwipeAction(
-                    title: state == .waiting ? "Öppna" : "Vänta",
-                    systemImage: state == .waiting ? "clock.badge.xmark" : "clock",
-                    color: .apWaiting
-                ) {
-                    Task { await actionStore.setState(action, to: state == .waiting ? .open : .waiting) }
-                },
-                APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
-                    pendingDelete = .action(action)
-                }
-            ])
+            .apSwipeActions(id: action.id, openId: $openSwipeId, actions: actions)
     }
 
     private func deleteFromPlan(_ item: PlanItem) {
@@ -672,7 +696,7 @@ struct PlanView: View {
                 // that keeps Prio/Väntar legible away from the section
                 // header. ATT GÖRA and KLART rows carry no state tag.
                 // The phase is data-only, never shown.
-                if stateTag(item) != nil || domainLabel(item) != nil {
+                if stateTag(item) != nil || domainLabel(item) != nil || completionDateText(linkedAction(item)) != nil {
                     HStack(spacing: 6) {
                         if let domain = domainLabel(item) {
                             if let band = domainBandColor(item) {
@@ -695,6 +719,7 @@ struct PlanView: View {
                                 .font(.caption)
                                 .foregroundStyle(tag.color)
                         }
+                        completionDateLabel(linkedAction(item))
                     }
                 }
             }
@@ -740,11 +765,17 @@ struct PlanView: View {
                                 .font(.caption)
                                 .foregroundStyle(tag.color)
                         }
+                        completionDateLabel(action)
                     }
-                } else if let tag = actionStateTag(action) {
-                    Text(tag.word)
-                        .font(.caption)
-                        .foregroundStyle(tag.color)
+                } else if actionStateTag(action) != nil || completionDateText(action) != nil {
+                    HStack(spacing: 6) {
+                        if let tag = actionStateTag(action) {
+                            Text(tag.word)
+                                .font(.caption)
+                                .foregroundStyle(tag.color)
+                        }
+                        completionDateLabel(action)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -775,6 +806,23 @@ struct PlanView: View {
         .buttonStyle(.plain)
         .haptic(.light)
         .minTapTarget()
+    }
+
+    /// "12 okt" for a done action's completion date, "ca 12 okt" when set
+    /// by hand; nil when not done or undated.
+    private func completionDateText(_ action: ProjectAction?) -> String? {
+        guard let action, action.isDone, let date = action.completedAt else { return nil }
+        let day = date.formatted(.dateTime.day(.twoDigits).month(.abbreviated))
+        return action.completedAtManual ? "ca \(day)" : day
+    }
+
+    @ViewBuilder
+    private func completionDateLabel(_ action: ProjectAction?) -> some View {
+        if let text = completionDateText(action) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(Color.apTextTertiary)
+        }
     }
 
     private func actionStateTag(_ action: ProjectAction) -> (word: String, color: Color)? {
@@ -1196,5 +1244,94 @@ private struct AddTaskSheet: View {
         }
         .buttonStyle(.plain)
         .haptic(.light)
+    }
+}
+
+// MARK: - Completion Date Sheet
+
+/// Manual completion date for a done task: a day between creation and
+/// today. Stays open on failure and shows why.
+private struct CompletionDateSheet: View {
+    let action: ProjectAction
+    let onSave: (Date) async throws -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Date
+    @State private var isSaving = false
+    @State private var errorMessage: String? = nil
+
+    init(action: ProjectAction, onSave: @escaping (Date) async throws -> Void) {
+        self.action = action
+        self.onSave = onSave
+        _selected = State(initialValue: action.completedAt ?? Date.now)
+    }
+
+    /// created_at...now; min() keeps the range valid if the device clock
+    /// is behind the server's created_at.
+    private var range: ClosedRange<Date> {
+        let now = Date.now
+        return min(action.createdAt, now)...now
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.apBackground.ignoresSafeArea()
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "KLAR DATUM")
+                        DatePicker("", selection: $selected, in: range, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                            .tint(.apOrange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.apRisk)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    APPillButton(title: "Spara", action: {
+                        Task { await save() }
+                    })
+                    .opacity(isSaving ? 0.5 : 1)
+                    .disabled(isSaving)
+
+                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationTitle("Datum")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+            .toolbarBackground(Color.apBackground, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+        .presentationDetents([.medium])
+    }
+
+    /// Noon local time on the picked day — a UTC-midnight shift can't move
+    /// it to the neighbouring day — clamped into created_at...now.
+    private func save() async {
+        let calendar = Calendar.current
+        var parts = calendar.dateComponents([.year, .month, .day], from: selected)
+        parts.hour = 12
+        let noon = calendar.date(from: parts) ?? selected
+        let date = max(min(noon, Date.now), action.createdAt)
+
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+        do {
+            try await onSave(date)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            print("CompletionDateSheet: save error: \(error)")
+        }
     }
 }

@@ -125,6 +125,7 @@ enum ProjectReportLoader {
                     title: action.title,
                     domain: action.domain,
                     completedAt: action.completedAt,
+                    completedAtManual: action.completedAtManual,
                     period: action.completedAt.map { period(for: $0, in: series) }
                 )
             }
@@ -204,6 +205,7 @@ enum ProjectReportLoader {
             counts.done += 1
             if action.completedAt != nil {
                 counts.doneWithDate += 1
+                if action.completedAtManual { counts.doneWithManualDate += 1 }
             } else {
                 counts.doneWithoutDate += 1
             }

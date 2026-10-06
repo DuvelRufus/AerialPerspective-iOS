@@ -70,6 +70,8 @@ struct ActionCounts {
     /// done split by whether completed_at is set.
     var doneWithDate = 0
     var doneWithoutDate = 0
+    /// Subset of doneWithDate whose date was set by hand (approximate).
+    var doneWithManualDate = 0
 }
 
 struct DoneAction {
@@ -77,6 +79,8 @@ struct DoneAction {
     /// Raw actions.domain; may match no Domain.
     let domain: String
     let completedAt: Date?
+    /// completedAt was set by hand afterwards — an approximation.
+    let completedAtManual: Bool
     /// nil when completedAt is nil.
     let period: ReportPeriod?
 }

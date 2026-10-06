@@ -27,10 +27,14 @@ struct ProjectAction: Identifiable, Codable, Equatable {
     var planActionId: UUID?
     var createdFromScore: Int?
     var createdAt: Date
-    /// Owned by a DB trigger; read-only for the client (never in
-    /// NewAction/StateUpdate). nil on tasks completed before the column
-    /// existed — Codable's decodeIfPresent also tolerates its absence.
+    /// Set to now() by a DB trigger when state becomes done, cleared when
+    /// it leaves done. The client writes it ONLY via setCompletedDate
+    /// (never NewAction/StateUpdate). nil on tasks completed before the
+    /// column existed.
     var completedAt: Date?
+    /// true = completedAt was set by hand afterwards (an approximation);
+    /// the trigger resets it with every state change.
+    var completedAtManual: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, domain, title, state
@@ -41,12 +45,48 @@ struct ProjectAction: Identifiable, Codable, Equatable {
         case createdFromScore = "created_from_score"
         case createdAt = "created_at"
         case completedAt = "completed_at"
+        case completedAtManual = "completed_at_manual"
     }
 
     /// Unknown DB values degrade to .open instead of failing decode.
     var taskState: TaskState { TaskState(rawValue: state) ?? .open }
 
     var isDone: Bool { taskState == .done }
+}
+
+// In an extension so the memberwise initializer survives.
+extension ProjectAction {
+    /// Synthesized decoding except completedAtManual: a missing or null
+    /// column degrades to false instead of failing the whole array (which
+    /// would empty the task list silently).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        projectId = try c.decode(UUID.self, forKey: .projectId)
+        domain = try c.decode(String.self, forKey: .domain)
+        title = try c.decode(String.self, forKey: .title)
+        state = try c.decode(String.self, forKey: .state)
+        assessmentId = try c.decodeIfPresent(UUID.self, forKey: .assessmentId)
+        insightId = try c.decodeIfPresent(UUID.self, forKey: .insightId)
+        planActionId = try c.decodeIfPresent(UUID.self, forKey: .planActionId)
+        createdFromScore = try c.decodeIfPresent(Int.self, forKey: .createdFromScore)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
+        completedAtManual = try c.decodeIfPresent(Bool.self, forKey: .completedAtManual) ?? false
+    }
+}
+
+enum ActionStoreError: LocalizedError {
+    /// The guarded update matched no row: the task is no longer done (or
+    /// is gone / not visible to this user).
+    case notDone
+
+    var errorDescription: String? {
+        switch self {
+        case .notDone:
+            return "Uppgiften är inte längre markerad som klar. Datumet sparades inte."
+        }
+    }
 }
 
 private struct NewAction: Encodable {
@@ -63,6 +103,13 @@ private struct NewAction: Encodable {
 /// R5: state is the only status column — the legacy dual-write is gone.
 private struct StateUpdate: Encodable {
     let state: String
+}
+
+/// The ONLY client write of completed_at — a manual date on a done task.
+/// The trigger leaves a completed_at-only update on a done row untouched.
+private struct CompletedDateUpdate: Encodable {
+    let completed_at: Date
+    let completed_at_manual: Bool
 }
 
 @MainActor
@@ -130,16 +177,44 @@ class ActionStore {
         guard let index = actions.firstIndex(where: { $0.id == action.id }) else { return }
         actions[index].state = newState.rawValue
         do {
-            try await supabase
+            // Returning the row keeps the trigger-owned completedAt /
+            // completedAtManual current without a refetch. Applied only if
+            // no newer state change landed locally meanwhile, so a late
+            // response can't undo a faster second tap.
+            let rows: [ProjectAction] = try await supabase
                 .from("actions")
                 .update(StateUpdate(state: newState.rawValue))
                 .eq("id", value: action.id)
+                .select()
                 .execute()
+                .value
+            if let row = rows.first,
+               let index = actions.firstIndex(where: { $0.id == action.id }),
+               actions[index].state == newState.rawValue {
+                actions[index] = row
+            }
         } catch {
             if let index = actions.firstIndex(where: { $0.id == action.id }) {
                 actions[index].state = action.state
             }
             print("ActionStore setState error: \(error)")
+        }
+    }
+
+    /// Manual completion date on a done task. Guarded on state = done so a
+    /// task reopened meanwhile can't get a date; zero matched rows throws.
+    func setCompletedDate(actionId: UUID, date: Date) async throws {
+        let rows: [ProjectAction] = try await supabase
+            .from("actions")
+            .update(CompletedDateUpdate(completed_at: date, completed_at_manual: true))
+            .eq("id", value: actionId)
+            .eq("state", value: "done")
+            .select()
+            .execute()
+            .value
+        guard let row = rows.first else { throw ActionStoreError.notDone }
+        if let index = actions.firstIndex(where: { $0.id == actionId }) {
+            actions[index] = row
         }
     }
 
