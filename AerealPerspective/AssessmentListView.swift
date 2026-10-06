@@ -370,10 +370,24 @@ struct AssessmentListView: View {
         }
     }
 
+    /// Refetches if unresolved; false (with createError set) when the
+    /// project's template has no questions — no assessment row is created.
+    private func questionsAvailable() async -> Bool {
+        if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
+            await questionStore.fetch()
+        }
+        guard !questionStore.questions(for: project).isEmpty else {
+            createError = "Frågorna kunde inte laddas. Kontrollera din anslutning och försök igen."
+            return false
+        }
+        return true
+    }
+
     private func createFirst() async {
         isCreating = true
         createError = nil
         defer { isCreating = false }
+        guard await questionsAvailable() else { return }
         do {
             _ = try await assessmentStore.createOrFetchLatest(projectId: project.id)
         } catch {
@@ -386,15 +400,7 @@ struct AssessmentListView: View {
         isCreating = true
         createError = nil
         defer { isCreating = false }
-        if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
-            await questionStore.fetch()
-        }
-        // An assessment without questions could never be answered or
-        // completed — don't create the row.
-        guard !questionStore.questions(for: project).isEmpty else {
-            createError = "Frågorna kunde inte laddas. Kontrollera din anslutning och försök igen."
-            return
-        }
+        guard await questionsAvailable() else { return }
         do {
             _ = try await assessmentStore.createNext(projectId: project.id)
         } catch {
