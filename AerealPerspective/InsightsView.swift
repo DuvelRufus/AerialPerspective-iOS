@@ -42,7 +42,11 @@ struct InsightsView: View {
             await actionStore.fetch(projectId: project.id)
         }
         .sheet(item: $insightForAction) { insight in
-            CreateActionSheet(insight: insight, domainScores: domainScores) { title, domain, insightId in
+            CreateActionSheet(
+                insight: insight,
+                domainScores: domainScores,
+                domainLabel: { questionStore.domainLabel($0, project: project) }
+            ) { title, domain, insightId in
                 // insightId is always the opened insight's id — the tapped
                 // card is the one that gets checked.
                 Task { await createAction(title: title, domain: domain, insightId: insightId) }
@@ -183,6 +187,8 @@ struct InsightsView: View {
 private struct CreateActionSheet: View {
     let insight: Insight
     let domainScores: [DomainScore]
+    /// Display only — onSave still hands back the Domain for the DB write.
+    let domainLabel: (Domain) -> String
     let onSave: (String, Domain, UUID?) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -195,10 +201,12 @@ private struct CreateActionSheet: View {
     init(
         insight: Insight,
         domainScores: [DomainScore],
+        domainLabel: @escaping (Domain) -> String,
         onSave: @escaping (String, Domain, UUID?) -> Void
     ) {
         self.insight = insight
         self.domainScores = domainScores
+        self.domainLabel = domainLabel
         self.onSave = onSave
         self.domain = Domain(caseInsensitive: insight.domain ?? "")
             ?? domainScores.min(by: { $0.score < $1.score })?.domain
@@ -214,7 +222,7 @@ private struct CreateActionSheet: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 8) {
-                            APSectionHeader(title: "FÖRSLAG · \(domain.rawValue.uppercased())")
+                            APSectionHeader(title: "FÖRSLAG · \(domainLabel(domain).uppercased())")
                             if let suggestion = insight.suggestedAction {
                                 suggestionCard(suggestion)
                             } else {

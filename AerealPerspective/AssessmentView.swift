@@ -98,7 +98,8 @@ struct AssessmentView: View {
     }
 
     var currentDomainName: String {
-        currentQuestion?.domain ?? ""
+        guard let key = currentQuestion?.domain else { return "" }
+        return questionStore.domainLabel(key: key, project: project)
     }
 
     var domainScores: [DomainScore] {

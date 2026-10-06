@@ -198,7 +198,7 @@ struct OversiktView: View {
                     if let weakest = row.weakest {
                         (Text("Svagast ")
                             .foregroundStyle(Color.apTextSecondary)
-                        + Text("\(weakest.domain.rawValue) \(weakest.score)")
+                        + Text("\(questionStore.domainLabel(weakest.domain, project: row.project)) \(weakest.score)")
                             .foregroundStyle(Color.apScore(weakest.score)))
                             .font(.caption2)
                             .lineLimit(1)

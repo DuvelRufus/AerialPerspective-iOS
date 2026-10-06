@@ -160,7 +160,11 @@ struct ResultView: View {
     private var resultContent: some View {
         ScrollView {
                 VStack(spacing: 32) {
-                    RadarChart(scores: domainScores, progress: revealProgress)
+                    RadarChart(
+                        scores: domainScores,
+                        progress: revealProgress,
+                        label: { questionStore.domainLabel($0, project: project) }
+                    )
                         .frame(height: 300)
                         .padding(.horizontal, 16)
                         .padding(.top, 24)
@@ -222,7 +226,7 @@ struct ResultView: View {
                     .fill(Color.apLevel(ds.level))
                     .frame(width: 3)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(ds.domain.rawValue.uppercased())
+                    Text(questionStore.domainLabel(ds.domain, project: project).uppercased())
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.apTextSecondary)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -393,6 +397,8 @@ struct ResultView: View {
 private struct RadarChart: View, @preconcurrency Animatable {
     let scores: [DomainScore]
     var progress: Double = 1
+    /// Display label per domain (the project template's, else rawValue).
+    var label: (Domain) -> String = { $0.rawValue }
 
     // Lets SwiftUI interpolate `progress` frame by frame so the score
     // polygon blooms out from the center instead of snapping into place.
@@ -451,7 +457,7 @@ private struct RadarChart: View, @preconcurrency Animatable {
 
                 // Domain labels
                 ForEach(0..<n, id: \.self) { i in
-                    Text(scores[i].domain.rawValue)
+                    Text(label(scores[i].domain))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Color.apTextSecondary)
                         .multilineTextAlignment(.center)

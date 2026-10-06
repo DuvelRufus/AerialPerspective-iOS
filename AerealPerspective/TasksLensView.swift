@@ -153,7 +153,8 @@ struct TasksLensView: View {
     /// Score-band colored via the row's urgency (the domain's current
     /// score); unresolvable domain/score falls back to a neutral pill.
     private func domainPill(_ row: OpenActionRow) -> some View {
-        let label = Domain(caseInsensitive: row.action.domain)?.rawValue
+        let label = Domain(caseInsensitive: row.action.domain)
+            .map { questionStore.domainLabel($0, templateId: row.templateId) }
             ?? row.action.domain.capitalized
         let band = row.urgency.map { Color.apScore($0) } ?? Color.apTextTertiary
         return Text(label)

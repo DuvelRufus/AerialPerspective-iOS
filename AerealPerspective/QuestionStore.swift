@@ -54,6 +54,33 @@ class QuestionStore {
         return (template.nameSv, template.domainLabels["sv"])
     }
 
+    /// Display label for a domain under a template: the template's
+    /// non-empty "sv" label, else the rawValue (software has no labels).
+    /// Display only — DB writes and matching keep using rawValue.
+    func domainLabel(_ domain: Domain, templateId: UUID?) -> String {
+        let id = templateId ?? softwareTemplateId
+        if let template = templates.first(where: { $0.id == id }),
+           let label = template.domainLabels["sv"]?[domain.rawValue],
+           !label.isEmpty {
+            return label
+        }
+        return domain.rawValue
+    }
+
+    /// As above for a raw domain string; an unknown key is returned as is.
+    func domainLabel(key: String, templateId: UUID?) -> String {
+        guard let domain = Domain(caseInsensitive: key) else { return key }
+        return domainLabel(domain, templateId: templateId)
+    }
+
+    func domainLabel(_ domain: Domain, project: Project) -> String {
+        domainLabel(domain, templateId: project.templateId)
+    }
+
+    func domainLabel(key: String, project: Project) -> String {
+        domainLabel(key: key, templateId: project.templateId)
+    }
+
     func groupedByDomain(templateId: UUID?) -> [(domain: Domain, questions: [Question])] {
         let templateQuestions = questions(forTemplate: templateId)
         return Domain.allCases.map { domain in

@@ -13,6 +13,8 @@ import Supabase
 struct OpenActionRow: Identifiable {
     let action: ProjectAction
     let teamName: String
+    /// The team's template, for domain display labels; nil = software.
+    let templateId: UUID?
     /// Current score of the action's domain (latest completed assessment);
     /// nil = unresolvable domain or no completed assessment, sorts last.
     let urgency: Int?
@@ -55,6 +57,9 @@ class OpenActionsStore {
             let nameByProject = Dictionary(
                 uniqueKeysWithValues: snapshot.projects.map { ($0.id, $0.name) }
             )
+            let templateByProject = Dictionary(
+                uniqueKeysWithValues: snapshot.projects.map { ($0.id, $0.templateId) }
+            )
             let scoresByProject = snapshot.scores.latestScoresByProject()
 
             var groups: [TaskState: [OpenActionRow]] = [:]
@@ -69,7 +74,12 @@ class OpenActionsStore {
                         .first(where: { $0.domain == domain })?.score
                 }
                 groups[state, default: []].append(
-                    OpenActionRow(action: action, teamName: teamName, urgency: urgency)
+                    OpenActionRow(
+                        action: action,
+                        teamName: teamName,
+                        templateId: templateByProject[action.projectId] ?? nil,
+                        urgency: urgency
+                    )
                 )
             }
 

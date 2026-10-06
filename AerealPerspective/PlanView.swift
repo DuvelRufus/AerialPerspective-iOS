@@ -114,7 +114,10 @@ struct PlanView: View {
             Text(deleteMessage)
         }
         .sheet(isPresented: $showAddSheet) {
-            AddTaskSheet(defaultDomain: weakestDomain) { domain, title in
+            AddTaskSheet(
+                defaultDomain: weakestDomain,
+                domainLabel: { questionStore.domainLabel($0, project: project) }
+            ) { domain, title in
                 Task { await addManualAction(domain: domain, title: title) }
             }
         }
@@ -709,7 +712,7 @@ struct PlanView: View {
                 if let domain = Domain(caseInsensitive: action.domain) {
                     HStack(spacing: 6) {
                         if let score = domainScores.first(where: { $0.domain == domain })?.score {
-                            Text(domain.rawValue)
+                            Text(questionStore.domainLabel(domain, project: project))
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(Color.apScore(score))
                                 .padding(.horizontal, 8)
@@ -718,7 +721,7 @@ struct PlanView: View {
                                 .clipShape(Capsule())
                         } else {
                             // No score for the domain: plain, no pill.
-                            Text(domain.rawValue)
+                            Text(questionStore.domainLabel(domain, project: project))
                                 .font(.caption)
                                 .foregroundStyle(Color.apTextTertiary)
                         }
@@ -812,9 +815,9 @@ struct PlanView: View {
 
     private func domainLabel(_ item: PlanItem) -> String? {
         // The item's domain is the action's category, shown only when valid.
-        // Case-insensitive, displayed in the enum's canonical casing.
+        // Case-insensitive, displayed as the project template's label.
         guard let raw = item.domain, let domain = Domain(caseInsensitive: raw) else { return nil }
-        return domain.rawValue
+        return questionStore.domainLabel(domain, project: project)
     }
 
     /// Score-band color for the item's domain via the shared helper;
@@ -1087,14 +1090,21 @@ private struct APFabPressStyle: ButtonStyle {
 /// plus a trim-validated free-text title.
 private struct AddTaskSheet: View {
     let defaultDomain: Domain
+    /// Display only — onSave still hands back the Domain (rawValue in DB).
+    let domainLabel: (Domain) -> String
     let onSave: (Domain, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var selected: Domain
 
-    init(defaultDomain: Domain, onSave: @escaping (Domain, String) -> Void) {
+    init(
+        defaultDomain: Domain,
+        domainLabel: @escaping (Domain) -> String,
+        onSave: @escaping (Domain, String) -> Void
+    ) {
         self.defaultDomain = defaultDomain
+        self.domainLabel = domainLabel
         self.onSave = onSave
         _selected = State(initialValue: defaultDomain)
     }
@@ -1151,7 +1161,7 @@ private struct AddTaskSheet: View {
         Button {
             selected = domain
         } label: {
-            Text(domain.rawValue)
+            Text(domainLabel(domain))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(selected == domain ? .white : Color.apTextSecondary)
                 .padding(.horizontal, 12)
