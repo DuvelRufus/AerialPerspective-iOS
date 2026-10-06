@@ -16,6 +16,7 @@ struct ProjectTabView: View {
     @State private var notesStore = NotesStore()
     @State private var linksStore = LinksStore()
     @State private var contactsStore = ContactsStore()
+    @State private var showExportSheet = false
 
     private enum Section: Int {
         case assessments = 0
@@ -61,6 +62,24 @@ struct ProjectTabView: View {
         .preferredColorScheme(.dark)
         .toolbarBackground(Color.apBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            // On the tab container so it shows in all three sections.
+            ToolbarItem(placement: .topBarTrailing) {
+                // Haptic in the action closure — a stacked .haptic gesture
+                // swallows toolbar-button taps (the 7edbd68 family).
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showExportSheet = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .foregroundStyle(.apOrange)
+                .accessibilityLabel("Exportera rapport")
+            }
+        }
+        .sheet(isPresented: $showExportSheet) {
+            ExportReportSheet(project: project, questionStore: questionStore)
+        }
     }
 }
 

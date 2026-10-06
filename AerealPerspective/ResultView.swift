@@ -416,11 +416,20 @@ struct ResultView: View {
 
 // MARK: - Radar Chart
 
-private struct RadarChart: View, @preconcurrency Animatable {
+/// Shared with the PDF report, which passes its light palette; the
+/// defaults are the app's dark-theme colors used by ResultView.
+struct RadarChart: View, @preconcurrency Animatable {
     let scores: [DomainScore]
     var progress: Double = 1
     /// Display label per domain (the project template's, else rawValue).
     var label: (Domain) -> String = { $0.rawValue }
+    var labelColor: Color = .apTextSecondary
+    var gridColor: Color = Color.apTextTertiary.opacity(0.3)
+    /// Score polygon: gradient fill, stroke and dots.
+    var fillColor: Color = .apOrange
+    /// nil = the top-to-bottom fade. PDF contexts drop gradient alpha (the
+    /// fill turns opaque), so the report passes a flat opacity instead.
+    var flatFillOpacity: Double? = nil
 
     // Lets SwiftUI interpolate `progress` frame by frame so the score
     // polygon blooms out from the center instead of snapping into place.
@@ -441,7 +450,7 @@ private struct RadarChart: View, @preconcurrency Animatable {
                 // Background grid rings
                 ForEach(Self.gridLevels.indices, id: \.self) { gi in
                     hexPath(center: center, radius: radius * Self.gridLevels[gi], n: n)
-                        .stroke(Color.apTextTertiary.opacity(0.3), lineWidth: 1)
+                        .stroke(gridColor, lineWidth: 1)
                 }
 
                 // Axis spokes from center to each vertex
@@ -450,28 +459,33 @@ private struct RadarChart: View, @preconcurrency Animatable {
                         p.move(to: center)
                         p.addLine(to: vertex(i: i, n: n, center: center, r: radius))
                     }
-                    .stroke(Color.apTextTertiary.opacity(0.3), lineWidth: 1)
+                    .stroke(gridColor, lineWidth: 1)
                 }
 
                 // Score polygon fill
-                scorePath(center: center, radius: radius, n: n)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.apOrange.opacity(0.38), Color.apOrange.opacity(0.10)],
-                            startPoint: .top,
-                            endPoint: .bottom
+                if let flatFillOpacity {
+                    scorePath(center: center, radius: radius, n: n)
+                        .fill(fillColor.opacity(flatFillOpacity))
+                } else {
+                    scorePath(center: center, radius: radius, n: n)
+                        .fill(
+                            LinearGradient(
+                                colors: [fillColor.opacity(0.38), fillColor.opacity(0.10)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         )
-                    )
+                }
 
                 // Score polygon stroke
                 scorePath(center: center, radius: radius, n: n)
-                    .stroke(Color.apOrange, lineWidth: 2)
+                    .stroke(fillColor, lineWidth: 2)
 
                 // Score dots
                 ForEach(0..<n, id: \.self) { i in
                     let r = radius * Double(scores[i].score) / 100.0 * progress
                     Circle()
-                        .fill(Color.apOrange)
+                        .fill(fillColor)
                         .frame(width: 7, height: 7)
                         .position(vertex(i: i, n: n, center: center, r: r))
                         .opacity(progress)
@@ -481,7 +495,7 @@ private struct RadarChart: View, @preconcurrency Animatable {
                 ForEach(0..<n, id: \.self) { i in
                     Text(label(scores[i].domain))
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.apTextSecondary)
+                        .foregroundStyle(labelColor)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .frame(width: 68)
