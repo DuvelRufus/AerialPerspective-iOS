@@ -27,6 +27,10 @@ struct ProjectAction: Identifiable, Codable, Equatable {
     var planActionId: UUID?
     var createdFromScore: Int?
     var createdAt: Date
+    /// Owned by a DB trigger; read-only for the client (never in
+    /// NewAction/StateUpdate). nil on tasks completed before the column
+    /// existed — Codable's decodeIfPresent also tolerates its absence.
+    var completedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id, domain, title, state
@@ -36,6 +40,7 @@ struct ProjectAction: Identifiable, Codable, Equatable {
         case planActionId = "plan_action_id"
         case createdFromScore = "created_from_score"
         case createdAt = "created_at"
+        case completedAt = "completed_at"
     }
 
     /// Unknown DB values degrade to .open instead of failing decode.
