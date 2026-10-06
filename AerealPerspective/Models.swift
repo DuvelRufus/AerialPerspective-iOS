@@ -76,11 +76,23 @@ struct Assessment: Identifiable, Codable, Hashable {
     }
 }
 
+// MARK: - LossyDecodable
+
+/// Decodes one array element without failing the whole array: a broken
+/// element becomes nil instead of throwing.
+struct LossyDecodable<T: Decodable>: Decodable {
+    let value: T?
+
+    init(from decoder: Decoder) throws {
+        value = try? T(from: decoder)
+    }
+}
+
 // MARK: - Template
 
 /// A question template (team type). Questions and projects point at one via
 /// template_id; nil on either side means the "software" template.
-struct Template: Identifiable, Decodable {
+nonisolated struct Template: Identifiable, Decodable {
     let id: UUID
     var key: String
     var nameSv: String?

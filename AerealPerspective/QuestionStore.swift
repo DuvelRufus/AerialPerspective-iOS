@@ -15,6 +15,9 @@ class QuestionStore {
     var options: [AnswerOption] = []
     var templates: [Template] = []
     var isLoading = false
+    /// True once the templates fetch succeeded and the software template
+    /// resolved; false triggers a refetch of templates on the next fetch().
+    var templatesLoaded = false
 
     static let softwareTemplateKey = "software"
 
@@ -33,12 +36,14 @@ class QuestionStore {
     }
 
     /// Questions of one template; a question without template_id counts as
-    /// software. A nil templateId (templates not loaded and the project
-    /// has none) returns every question — today's unfiltered behavior —
-    /// rather than an empty, unanswerable flow.
+    /// software. A nil templateId means software; if the software template
+    /// is unresolved (templates not loaded, or its row dropped) the result
+    /// is empty — failing closed rather than mixing every template's
+    /// questions. A non-nil templateId filters on the questions' own
+    /// template_id, so it works even if that template's row was dropped.
     func questions(forTemplate templateId: UUID?) -> [Question] {
-        guard let templateId else { return questions }
-        return questions.filter { ($0.templateId ?? softwareTemplateId) == templateId }
+        guard let id = templateId ?? softwareTemplateId else { return [] }
+        return questions.filter { ($0.templateId ?? softwareTemplateId) == id }
     }
 
     func questions(for project: Project) -> [Question] {
@@ -117,13 +122,22 @@ class QuestionStore {
             print("QuestionStore fetch error: \(error)")
         }
         // Separate catch: a templates failure must not touch questions.
+        // Refetched on every call (never skipped when questions are loaded),
+        // so a failure or a missing software row is retried next fetch().
         do {
-            templates = try await supabase
+            let rows: [LossyDecodable<Template>] = try await supabase
                 .from("templates")
                 .select()
                 .execute()
                 .value
+            templates = rows.compactMap { $0.value }
+            let dropped = rows.count - templates.count
+            if dropped > 0 {
+                print("QuestionStore: dropped \(dropped) undecodable template row(s)")
+            }
+            templatesLoaded = softwareTemplateId != nil
         } catch {
+            templatesLoaded = false
             print("QuestionStore templates fetch error: \(error)")
         }
     }
