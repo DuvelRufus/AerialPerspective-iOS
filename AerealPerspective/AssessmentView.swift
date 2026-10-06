@@ -73,6 +73,9 @@ struct AssessmentView: View {
     /// Drives the Se resultat button's spinner while pending saves land.
     @State private var isFinishing = false
     @State private var saveFailed = false
+    /// True once the initial load ran — an empty question list after that
+    /// is an error, not a pending load.
+    @State private var hasLoaded = false
 
     /// The project template's questions, in domain order.
     var allQuestions: [Question] {
@@ -119,7 +122,16 @@ struct AssessmentView: View {
 
                 if allQuestions.isEmpty {
                     Spacer()
-                    ProgressView().tint(.apOrange)
+                    if hasLoaded && !questionStore.isLoading {
+                        APErrorState(message: "Frågorna kunde inte laddas. Kontrollera din anslutning och försök igen.") {
+                            Task {
+                                await questionStore.fetch()
+                                currentQuestionIndex = findStartingIndex()
+                            }
+                        }
+                    } else {
+                        ProgressView().tint(.apOrange)
+                    }
                     Spacer()
                 } else {
                     ZStack {
@@ -219,6 +231,10 @@ struct AssessmentView: View {
         }
         .task {
             await answerStore.fetch(assessmentId: assessment.id)
+            if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
+                await questionStore.fetch()
+            }
+            hasLoaded = true
             currentQuestionIndex = findStartingIndex()
         }
         .onChange(of: currentQuestionIndex) { _, _ in

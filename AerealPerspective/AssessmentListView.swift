@@ -386,6 +386,15 @@ struct AssessmentListView: View {
         isCreating = true
         createError = nil
         defer { isCreating = false }
+        if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
+            await questionStore.fetch()
+        }
+        // An assessment without questions could never be answered or
+        // completed — don't create the row.
+        guard !questionStore.questions(for: project).isEmpty else {
+            createError = "Frågorna kunde inte laddas. Kontrollera din anslutning och försök igen."
+            return
+        }
         do {
             _ = try await assessmentStore.createNext(projectId: project.id)
         } catch {

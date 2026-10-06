@@ -30,6 +30,9 @@ struct ResultView: View {
     @State private var planStore = PlanStore()
     @State private var isAutoGenerating = false
     @State private var generationError: String? = nil
+    /// Generation was needed but the project's template has no questions
+    /// (fetch failed or templates unresolved) — nothing sent, nothing saved.
+    @State private var questionsUnresolved = false
     /// View-branch gate ONLY — never touches the generation guard. True
     /// from frame one on the question-flow path (a just-completed
     /// assessment can never have insights/plan, so generation is certain);
@@ -89,6 +92,14 @@ struct ResultView: View {
             if !hasLoadedScores {
                 ProgressView()
                     .tint(.apOrange)
+            } else if questionsUnresolved {
+                APErrorState(message: "Frågorna kunde inte laddas. Kontrollera din anslutning och försök igen.") {
+                    Task {
+                        await questionStore.fetch()
+                        if selfLoads { recomputeCurrentScores() }
+                        await autoGenerateIfNeeded()
+                    }
+                }
             } else if isAutoGenerating || awaitingGenerationDecision || generationError != nil {
                 // Full-screen while generating so the radar reveal fires
                 // only once the results actually appear.
@@ -296,6 +307,13 @@ struct ResultView: View {
         let needsInsights = insightStore.insights.isEmpty
         let needsPlan = planStore.activePlan == nil && planStore.error == nil
         guard needsInsights || needsPlan else { return }
+        // Never generate from an empty Q&A payload: an unresolved template
+        // would save insights/plan built on nothing (generate-once rule).
+        guard !questionStore.questions(for: project).isEmpty else {
+            questionsUnresolved = true
+            return
+        }
+        questionsUnresolved = false
 
         generationError = nil
         isAutoGenerating = true
@@ -340,15 +358,19 @@ struct ResultView: View {
 
     private func loadCurrentScores() async {
         await answerStore.fetch(assessmentId: assessment.id)
-        if questionStore.questions.isEmpty {
+        if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
             await questionStore.fetch()
         }
+        recomputeCurrentScores()
+        hasLoadedScores = true
+    }
+
+    private func recomputeCurrentScores() {
         domainScores = ScoringService.compute(
             answers: answerStore.answers,
             questions: questionStore.questions(for: project),
             options: questionStore.options
         )
-        hasLoadedScores = true
     }
 
     private func loadPreviousScores() async {
@@ -366,7 +388,7 @@ struct ResultView: View {
             let previousAnswerStore = AnswerStore()
             await previousAnswerStore.fetch(assessmentId: previous.id)
 
-            if questionStore.questions.isEmpty {
+            if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
                 await questionStore.fetch()
             }
 

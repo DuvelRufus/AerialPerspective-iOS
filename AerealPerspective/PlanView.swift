@@ -79,6 +79,9 @@ struct PlanView: View {
     @State private var isLoading = true
     @State private var isGenerating = false
     @State private var errorMessage: String? = nil
+    /// Set when generate() stopped because the project's template has no
+    /// questions; the error state's retry refetches and generates again.
+    @State private var unresolvedGenerationTarget: Assessment? = nil
     @State private var showAddSheet = false
 
     var body: some View {
@@ -157,6 +160,13 @@ struct PlanView: View {
     private var content: some View {
         if isGenerating {
             APGeneratingState(phrases: Self.generationPhrases)
+        } else if let target = unresolvedGenerationTarget {
+            APErrorState(message: "Frågorna kunde inte laddas. Kontrollera din anslutning och försök igen.") {
+                Task {
+                    await questionStore.fetch()
+                    await generate(for: target, replacingActive: true)
+                }
+            }
         } else if isLoading {
             loadingState("Laddar plan...")
         } else if sourceAssessment != nil || hasAnyRows {
@@ -937,7 +947,7 @@ struct PlanView: View {
         errorMessage = nil
         let assessmentStore = AssessmentStore()
         await assessmentStore.fetch(projectId: project.id)
-        if questionStore.questions.isEmpty {
+        if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
             await questionStore.fetch()
         }
 
@@ -1000,6 +1010,13 @@ struct PlanView: View {
     /// first generation sends none.
     private func generate(for target: Assessment, replacingActive: Bool) async {
         errorMessage = nil
+        // Never generate from an empty Q&A payload: the RPC would archive
+        // the active plan in favour of one built on nothing.
+        guard !questionStore.questions(for: project).isEmpty else {
+            unresolvedGenerationTarget = target
+            return
+        }
+        unresolvedGenerationTarget = nil
         isGenerating = true
         defer { isGenerating = false }
         do {

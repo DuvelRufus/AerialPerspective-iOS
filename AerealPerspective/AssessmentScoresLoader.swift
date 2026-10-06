@@ -63,7 +63,7 @@ struct AssessmentScores {
 enum AssessmentScoresLoader {
     @MainActor
     static func load(questionStore: QuestionStore) async throws -> AssessmentScores {
-        if questionStore.questions.isEmpty {
+        if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
             await questionStore.fetch()
         }
         // Unfiltered: scoring only counts answered questions, so every
