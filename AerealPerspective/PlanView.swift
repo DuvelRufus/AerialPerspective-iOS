@@ -71,9 +71,18 @@ struct PlanView: View {
         case action(ProjectAction)
     }
     @State private var pendingDelete: PendingDelete? = nil
-    /// Plan item ids whose done-marked action is being inserted — renders as
-    /// done before the row lands in actionStore.actions.
-    @State private var pendingPlanIds: Set<UUID> = []
+    /// Plan item id → the state its linked action is being inserted with.
+    /// Renders the row in that state before it lands in actionStore.actions,
+    /// and blocks a second insert for the same item while one is in flight.
+    @State private var pendingPlanStates: [UUID: TaskState] = [:]
+
+    /// 0 = Lista, 1 = Kanban. Persisted across launches and segment
+    /// switches (ProjectTabView re-creates PlanView on every switch).
+    @AppStorage("tasksLayout") private var tasksLayout = 0
+    /// A move out of Klart that would clear a completion date — confirmed.
+    @State private var pendingMove: PendingMove? = nil
+    /// The kanban column a drag is currently hovering, for its highlight.
+    @State private var targetedColumn: KanbanColumn? = nil
 
     // View state
     @State private var isLoading = true
@@ -181,7 +190,11 @@ struct PlanView: View {
             // the list. The sourceAssessment side keeps the emptied-plan
             // corner intact — an active plan with zero rows still shows the
             // header and the regenerate button.
-            todoList
+            if tasksLayout == 1 {
+                kanbanBoard
+            } else {
+                todoList
+            }
         } else {
             emptyState
         }
@@ -245,7 +258,7 @@ struct PlanView: View {
         let sections = makeSections()
         // Both row kinds count — the header tracks the whole unified list.
         let total = sections.prio.count + sections.open.count
-            + sections.waiting.count + sections.done.count
+            + sections.doing.count + sections.waiting.count + sections.done.count
         let done = sections.done.count
 
         return ScrollView {
@@ -257,6 +270,9 @@ struct PlanView: View {
                 }
                 if !sections.open.isEmpty {
                     planSection(title: "ATT GÖRA", tint: nil, list: sections.open)
+                }
+                if !sections.doing.isEmpty {
+                    planSection(title: "PÅGÅR", tint: Color.apDoing, list: sections.doing)
                 }
                 if !sections.waiting.isEmpty {
                     collapsibleSection(title: "VÄNTAR", countTint: Color.apWaiting, list: sections.waiting, expanded: $waitingExpanded)
@@ -316,6 +332,359 @@ struct PlanView: View {
         }
     }
 
+    // MARK: - Kanban
+
+    /// The three board columns. Todo gathers open, prio and waiting (prio
+    /// and waiting keep their marker on the card); doing and done map 1:1.
+    private enum KanbanColumn: Int, CaseIterable, Identifiable {
+        case todo, doing, done
+
+        var id: Int { rawValue }
+
+        init(_ state: TaskState) {
+            switch state {
+            case .open, .prio, .waiting: self = .todo
+            case .doing:                 self = .doing
+            case .done:                  self = .done
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .todo:  return "ATT GÖRA"
+            case .doing: return "PÅGÅR"
+            case .done:  return "KLART"
+            }
+        }
+
+        var menuTitle: String {
+            switch self {
+            case .todo:  return "Att göra"
+            case .doing: return "Pågår"
+            case .done:  return "Klart"
+            }
+        }
+
+        var tint: Color? {
+            switch self {
+            case .todo:  return nil
+            case .doing: return Color.apDoing
+            case .done:  return Color.apStrong
+            }
+        }
+
+        /// The state a card lands in when moved INTO this column. Moving
+        /// into Todo resets to open — an earlier prio/waiting is not kept.
+        var targetState: TaskState {
+            switch self {
+            case .todo:  return .open
+            case .doing: return .doing
+            case .done:  return .done
+            }
+        }
+    }
+
+    /// A move held back by the "Slutdatumet tas bort" confirm.
+    private struct PendingMove {
+        let row: PlanRow
+        let column: KanbanColumn
+    }
+
+    private func kanbanRows(_ column: KanbanColumn, in sections: PlanSections) -> [PlanRow] {
+        switch column {
+        // Same order as the list: PRIO, ATT GÖRA, VÄNTAR, each by urgency.
+        case .todo:  return sections.prio + sections.open + sections.waiting
+        case .doing: return sections.doing
+        case .done:  return sections.done
+        }
+    }
+
+    private var kanbanBoard: some View {
+        let sections = makeSections()
+        let total = sections.prio.count + sections.open.count
+            + sections.doing.count + sections.waiting.count + sections.done.count
+
+        return VStack(alignment: .leading, spacing: 12) {
+            progressHeader(done: sections.done.count, total: total)
+                .padding(.horizontal, 16)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.apRisk)
+                    .padding(.horizontal, 16)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 12) {
+                    ForEach(KanbanColumn.allCases) { column in
+                        kanbanColumn(column, rows: kanbanRows(column, in: sections))
+                            .containerRelativeFrame(.horizontal) { width, _ in width * 0.85 }
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .contentMargins(.horizontal, 16, for: .scrollContent)
+            .scrollTargetBehavior(.viewAligned)
+        }
+        .padding(.top, 12)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: sectionSignature(sections))
+        // Environment-based: each column's vertical ScrollView picks it up.
+        .refreshable {
+            actionStore.error = nil
+            await actionStore.fetch(projectId: project.id)
+            await load()
+        }
+        .overlay(alignment: .bottomTrailing) {
+            addButton
+                .padding(.trailing, 20)
+                .padding(.bottom, 24)
+        }
+        .confirmationDialog(
+            "Slutdatumet tas bort",
+            isPresented: Binding(
+                get: { pendingMove != nil },
+                set: { if !$0 { pendingMove = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Flytta", role: .destructive) {
+                guard let move = pendingMove else { return }
+                pendingMove = nil
+                performMove(move.row, to: move.column)
+            }
+            Button("Avbryt", role: .cancel) { pendingMove = nil }
+        } message: {
+            Text("Uppgiften lämnar Klart och dess slutdatum raderas. Flyttas den tillbaka får den dagens datum.")
+        }
+    }
+
+    private func kanbanColumn(_ column: KanbanColumn, rows: [PlanRow]) -> some View {
+        let targeted = targetedColumn == column
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                Text("\(column.title) ·")
+                    .foregroundStyle(column.tint ?? Color.apTextSecondary)
+                Text("\(rows.count)")
+                    .foregroundStyle(Color.apTextSecondary)
+            }
+            .font(.caption)
+            .tracking(1.5)
+            .padding(.horizontal, 4)
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    if rows.isEmpty {
+                        Text("Inga uppgifter")
+                            .font(.caption)
+                            .foregroundStyle(Color.apTextTertiary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 24)
+                    }
+                    ForEach(rows) { row in
+                        kanbanCard(row)
+                    }
+                }
+                // Keeps the last card clear of the FAB.
+                .padding(.bottom, 96)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.apSurface.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(
+                    targeted ? (column.tint ?? Color.apOrange) : Color.apHairline,
+                    lineWidth: targeted ? 1.5 : 0.5
+                )
+        )
+        // The whole column, empty space included, is the drop target.
+        .contentShape(Rectangle())
+        .dropDestination(for: String.self) { payloads, _ in
+            handleDrop(payloads, into: column)
+        } isTargeted: { isTargeted in
+            if isTargeted {
+                targetedColumn = column
+            } else if targetedColumn == column {
+                targetedColumn = nil
+            }
+        }
+    }
+
+    /// No apSwipeActions here: its leftward-drag latch would claim the
+    /// board's horizontal scroll. Moves go through drag or the menu.
+    private func kanbanCard(_ row: PlanRow) -> some View {
+        let state = rowState(row)
+        let done = state == .done
+        let completed = rowCompletedAction(row)
+
+        return APCard(padding: 12) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if state == .prio {
+                            Image(systemName: "flag.fill")
+                                .font(.caption)
+                                .foregroundStyle(Color.apOrange)
+                                .accessibilityLabel("Prio")
+                        } else if state == .waiting {
+                            Image(systemName: "clock")
+                                .font(.caption)
+                                .foregroundStyle(Color.apWaiting)
+                                .accessibilityLabel("Väntar")
+                        }
+                        Text(rowTitle(row))
+                            .font(.subheadline)
+                            .strikethrough(done)
+                            .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    if rowDomain(row) != nil || completionDateText(completed) != nil {
+                        HStack(spacing: 6) {
+                            if let domain = rowDomain(row) {
+                                if let band = domain.band {
+                                    Text(domain.label)
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(band)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(band.opacity(0.15))
+                                        .clipShape(Capsule())
+                                } else {
+                                    // No score for the domain: plain, no pill.
+                                    Text(domain.label)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.apTextTertiary)
+                                }
+                            }
+                            completionDateLabel(completed)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                moveMenu(row, from: KanbanColumn(state))
+            }
+        }
+        .opacity(done ? 0.6 : 1)
+        .draggable(row.id.uuidString)
+    }
+
+    private func moveMenu(_ row: PlanRow, from current: KanbanColumn) -> some View {
+        Menu {
+            Section("Flytta till") {
+                ForEach(KanbanColumn.allCases.filter { $0 != current }) { column in
+                    Button(column.menuTitle) {
+                        requestMove(row, to: column)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.apTextSecondary)
+                .minTapTarget(32)
+        }
+        .accessibilityLabel("Flytta till")
+    }
+
+    private func rowState(_ row: PlanRow) -> TaskState {
+        switch row {
+        case .planItem(let item): return itemState(item)
+        case .action(let action): return action.taskState
+        }
+    }
+
+    private func rowTitle(_ row: PlanRow) -> String {
+        switch row {
+        case .planItem(let item): return item.text
+        case .action(let action): return action.title
+        }
+    }
+
+    /// The action whose completion date the card shows — the row's own
+    /// action, or a plan item's linked one.
+    private func rowCompletedAction(_ row: PlanRow) -> ProjectAction? {
+        switch row {
+        case .planItem(let item): return linkedAction(item)
+        case .action(let action): return action
+        }
+    }
+
+    /// Display label plus score-band color (nil = no score → plain text),
+    /// resolved the same way as on the list rows.
+    private func rowDomain(_ row: PlanRow) -> (label: String, band: Color?)? {
+        switch row {
+        case .planItem(let item):
+            guard let label = domainLabel(item) else { return nil }
+            return (label, domainBandColor(item))
+        case .action(let action):
+            guard let domain = Domain(caseInsensitive: action.domain) else { return nil }
+            let band = domainScores.first(where: { $0.domain == domain }).map { Color.apScore($0.score) }
+            return (questionStore.domainLabel(domain, project: project), band)
+        }
+    }
+
+    /// Drop payload is the card's id string. Anything else — another app's
+    /// text, a card that vanished in a refetch — is an unknown card.
+    private func handleDrop(_ payloads: [String], into column: KanbanColumn) -> Bool {
+        let sections = makeSections()
+        let rows = sections.prio + sections.open + sections.doing + sections.waiting + sections.done
+        guard let raw = payloads.first,
+              let id = UUID(uuidString: raw),
+              let row = rows.first(where: { $0.id == id })
+        else {
+            reportMoveFailure("Kortet kunde inte flyttas: okänd uppgift.")
+            return false
+        }
+        requestMove(row, to: column)
+        return true
+    }
+
+    /// Drag and menu share this path. Leaving Klart with a completion date
+    /// asks first — the trigger clears completed_at on any non-done state.
+    private func requestMove(_ row: PlanRow, to column: KanbanColumn) {
+        let current = KanbanColumn(rowState(row))
+        guard current != column else { return }
+        if current == .done, rowCompletedAction(row)?.completedAt != nil {
+            pendingMove = PendingMove(row: row, column: column)
+            return
+        }
+        performMove(row, to: column)
+    }
+
+    private func performMove(_ row: PlanRow, to column: KanbanColumn) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        switch row {
+        case .planItem(let stale):
+            // The item may have been deleted while the dialog was open.
+            guard let item = items.first(where: { $0.id == stale.id }) else {
+                reportMoveFailure("Uppgiften finns inte längre i planen. Den har inte flyttats.")
+                return
+            }
+            errorMessage = nil
+            setLinkedState(item, to: column.targetState)
+        case .action(let stale):
+            // Re-read: setState rolls back to the state it is handed, so it
+            // must be the current row, not the one captured at drag start.
+            guard let action = actionStore.actions.first(where: { $0.id == stale.id }) else {
+                reportMoveFailure("Uppgiften hittades inte. Den har inte flyttats.")
+                return
+            }
+            applyState(action, column.targetState)
+        }
+    }
+
+    private func reportMoveFailure(_ message: String) {
+        errorMessage = message
+        print("PlanView: kanban move failed: \(message)")
+    }
+
     // MARK: - Add task
 
     private var addButton: some View {
@@ -367,6 +736,7 @@ struct PlanView: View {
     private struct PlanSections {
         var prio: [PlanRow] = []
         var open: [PlanRow] = []
+        var doing: [PlanRow] = []
         var waiting: [PlanRow] = []
         var done: [PlanRow] = []
 
@@ -374,6 +744,7 @@ struct PlanView: View {
             switch state {
             case .prio:    prio.append(row)
             case .open:    open.append(row)
+            case .doing:   doing.append(row)
             case .waiting: waiting.append(row)
             case .done:    done.append(row)
             }
@@ -382,7 +753,7 @@ struct PlanView: View {
 
     private func itemState(_ item: PlanItem) -> TaskState {
         if let action = linkedAction(item) { return action.taskState }
-        return pendingPlanIds.contains(item.id) ? .done : .open
+        return pendingPlanStates[item.id] ?? .open
     }
 
     /// Lower domain score = more urgent. Items without a resolvable domain
@@ -439,6 +810,7 @@ struct PlanView: View {
         }
         sections.prio = sortedByUrgency(sections.prio)
         sections.open = sortedByUrgency(sections.open)
+        sections.doing = sortedByUrgency(sections.doing)
         sections.waiting = sortedByUrgency(sections.waiting)
         sections.done = sortedByUrgency(sections.done)
         return sections
@@ -449,12 +821,13 @@ struct PlanView: View {
     /// disappears, or reorders — NOT when an action's fields mutate in place
     /// or a refetch replaces the array with membership-equal rows, so an
     /// array-wide animation can never fire under an active swipe drag.
-    /// pendingPlanIds is covered too: itemState reads it, so an optimistic
-    /// done-flip moves the row and thereby the signature.
+    /// pendingPlanStates is covered too: itemState reads it, so an
+    /// optimistic insert moves the row and thereby the signature.
     private func sectionSignature(_ sections: PlanSections) -> [[UUID]] {
         [
             sections.prio.map(\.id),
             sections.open.map(\.id),
+            sections.doing.map(\.id),
             sections.waiting.map(\.id),
             sections.done.map(\.id)
         ]
@@ -529,6 +902,8 @@ struct PlanView: View {
                     .font(.subheadline.bold())
                     .foregroundStyle(.apTextPrimary)
                 Spacer()
+                APSegmentedControl(selection: $tasksLayout, options: ["Lista", "Kanban"])
+                    .fixedSize()
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -609,14 +984,14 @@ struct PlanView: View {
                 systemImage: state == .prio ? "flag.slash" : "flag.fill",
                 color: .apOrange
             ) {
-                Task { await actionStore.setState(action, to: state == .prio ? .open : .prio) }
+                applyState(action, state == .prio ? .open : .prio)
             },
             APSwipeAction(
                 title: state == .waiting ? "Öppna" : "Vänta",
                 systemImage: state == .waiting ? "clock.badge.xmark" : "clock",
                 color: .apWaiting
             ) {
-                Task { await actionStore.setState(action, to: state == .waiting ? .open : .waiting) }
+                applyState(action, state == .waiting ? .open : .waiting)
             },
             APSwipeAction(title: "Ta bort", systemImage: "trash", color: .apRisk) {
                 pendingDelete = .action(action)
@@ -671,9 +1046,33 @@ struct PlanView: View {
 
     private func setLinkedState(_ item: PlanItem, to state: TaskState) {
         if let action = linkedAction(item) {
-            Task { await actionStore.setState(action, to: state) }
+            applyState(action, state)
         } else {
             createLinkedAction(item, state: state)
+        }
+    }
+
+    /// The one state write from this view. ActionStore has already rolled
+    /// the row back when it throws; the failure is shown, not swallowed.
+    private func applyState(_ action: ProjectAction, _ state: TaskState) {
+        errorMessage = nil
+        Task {
+            do {
+                try await actionStore.setState(action, to: state)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func toggleAction(_ action: ProjectAction) {
+        errorMessage = nil
+        Task {
+            do {
+                try await actionStore.toggle(action)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -788,7 +1187,7 @@ struct PlanView: View {
     /// Toggles the action's own open<->done — never creates a linked action.
     private func actionStatusCircle(_ action: ProjectAction) -> some View {
         Button {
-            Task { await actionStore.toggle(action) }
+            toggleAction(action)
         } label: {
             Group {
                 if action.isDone {
@@ -828,6 +1227,7 @@ struct PlanView: View {
     private func actionStateTag(_ action: ProjectAction) -> (word: String, color: Color)? {
         switch action.taskState {
         case .prio:    return ("Prio", Color.apOrange)
+        case .doing:   return ("Pågår", Color.apDoing)
         case .waiting: return ("Väntar", Color.apWaiting)
         default:       return nil
         }
@@ -868,7 +1268,7 @@ struct PlanView: View {
 
     private func isDone(_ item: PlanItem) -> Bool {
         if let action = linkedAction(item) { return action.isDone }
-        return pendingPlanIds.contains(item.id)
+        return pendingPlanStates[item.id] == .done
     }
 
     private func domainLabel(_ item: PlanItem) -> String? {
@@ -891,6 +1291,7 @@ struct PlanView: View {
     private func stateTag(_ item: PlanItem) -> (word: String, color: Color)? {
         switch itemState(item) {
         case .prio:    return ("Prio", Color.apOrange)
+        case .doing:   return ("Pågår", Color.apDoing)
         case .waiting: return ("Väntar", Color.apWaiting)
         default:       return nil
         }
@@ -902,15 +1303,23 @@ struct PlanView: View {
         if let action = linkedAction(item) {
             // Un-toggling done goes back to "open" (draws as the empty
             // circle), never deletes — the linked Åtgärd row must survive.
-            Task { await actionStore.toggle(action) }
-        } else if !pendingPlanIds.contains(item.id) {
+            toggleAction(action)
+        } else if pendingPlanStates[item.id] == nil {
             createLinkedAction(item)
         }
     }
 
     private func createLinkedAction(_ item: PlanItem, state: TaskState = .done) {
+        // One insert per plan item: a second move while the first insert is
+        // in flight (fast swipes, drag + menu) would otherwise create two
+        // actions with the same plan_action_id.
+        guard linkedAction(item) == nil, pendingPlanStates[item.id] == nil else {
+            errorMessage = "Uppgiften sparas fortfarande. Försök igen om ett ögonblick."
+            print("PlanView: createLinkedAction skipped, insert in flight for \(item.id)")
+            return
+        }
         // Inserts the linked action directly in the requested state (circle
-        // tap: done; swipe: prio/waiting).
+        // tap: done; swipe: prio/waiting; kanban: any).
         // Use the plan item's domain when present; otherwise silently default
         // to the source assessment's lowest-scoring domain — only as the
         // action's domain, never shown on the row.
@@ -923,9 +1332,7 @@ struct PlanView: View {
             domain = .team
         }
 
-        if state == .done {
-            pendingPlanIds.insert(item.id) // optimistic: flip to done immediately
-        }
+        pendingPlanStates[item.id] = state // optimistic: shows in the new state immediately
 
         Task {
             do {
@@ -938,9 +1345,9 @@ struct PlanView: View {
                     planActionId: item.id,
                     createdFromScore: domainScores.first { $0.domain == domain }?.score
                 )
-                pendingPlanIds.remove(item.id)
+                pendingPlanStates[item.id] = nil
             } catch {
-                pendingPlanIds.remove(item.id)
+                pendingPlanStates[item.id] = nil
                 errorMessage = error.localizedDescription
                 print("PlanView: createLinkedAction error: \(error)")
             }

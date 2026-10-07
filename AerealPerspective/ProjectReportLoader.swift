@@ -200,6 +200,7 @@ enum ProjectReportLoader {
         switch action.taskState {
         case .open: counts.open += 1
         case .prio: counts.prio += 1
+        case .doing: counts.doing += 1
         case .waiting: counts.waiting += 1
         case .done:
             counts.done += 1

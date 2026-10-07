@@ -37,7 +37,7 @@ struct TasksLensView: View {
                 Task { await store.load(questionStore: questionStore, provider: provider) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if store.prio.isEmpty && store.open.isEmpty && store.waiting.isEmpty {
+        } else if store.prio.isEmpty && store.open.isEmpty && store.doing.isEmpty && store.waiting.isEmpty {
             emptyState
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -64,8 +64,9 @@ struct TasksLensView: View {
     private var taskList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                section(title: "PRIO", tint: .apRisk, rows: store.prio)
+                section(title: "PRIO", tint: .apOrange, rows: store.prio)
                 section(title: "ATT GÖRA", tint: nil, rows: store.open)
+                section(title: "PÅGÅR", tint: .apDoing, rows: store.doing)
                 // Waiting rows draw dimmed — parked, not actionable here.
                 section(title: "VÄNTAR", tint: .apWaiting, rows: store.waiting, dimmed: true)
             }

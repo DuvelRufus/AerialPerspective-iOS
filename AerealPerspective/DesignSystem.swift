@@ -32,6 +32,8 @@ extension Color {
     static let apNote             = Color(hex: "#F59E0B")
     static let apStrong           = Color(hex: "#22C55E")
     static let apWaiting          = Color(hex: "#3B82F6")
+    /// Pågår (TaskState.doing) — distinct from waiting blue and prio orange.
+    static let apDoing            = Color(hex: "#8B5CF6")
 
     // Borders & dividers
     static let apHairline         = Color.white.opacity(0.08)
@@ -66,6 +68,7 @@ extension ShapeStyle where Self == Color {
     static var apNote:            Color { Color.apNote }
     static var apStrong:          Color { Color.apStrong }
     static var apWaiting:         Color { Color.apWaiting }
+    static var apDoing:           Color { Color.apDoing }
     static var apHairline:        Color { Color.apHairline }
 }
 

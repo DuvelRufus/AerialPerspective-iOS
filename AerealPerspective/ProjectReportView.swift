@@ -277,7 +277,7 @@ struct ProjectReportContent {
 
     private var keyFigures: some View {
         let counts = allActionCounts
-        let openCount = counts.open + counts.prio + counts.waiting
+        let openCount = counts.open + counts.prio + counts.doing + counts.waiting
         return HStack(spacing: 8) {
             FigureTile(
                 title: "Slutförda assessments",
@@ -313,6 +313,7 @@ struct ProjectReportContent {
         (Array(data.actionsPerDomain.values) + [data.unknownDomainActions]).reduce(into: ActionCounts()) { sum, c in
             sum.open += c.open
             sum.prio += c.prio
+            sum.doing += c.doing
             sum.waiting += c.waiting
             sum.done += c.done
         }
@@ -512,7 +513,7 @@ struct ProjectReportContent {
         let unknownDone = data.doneActions.filter { Domain(caseInsensitive: $0.domain) == nil }
         let unknownInsights = data.latestInsights.filter { $0.domain.flatMap { Domain(caseInsensitive: $0) } == nil }
         let unknown = data.unknownDomainActions
-        if unknown.done + unknown.open + unknown.prio + unknown.waiting > 0 || !unknownInsights.isEmpty {
+        if unknown.done + unknown.open + unknown.prio + unknown.doing + unknown.waiting > 0 || !unknownInsights.isEmpty {
             blocks += domainBlocks(
                 title: "Okänd domän",
                 counts: unknown,
@@ -531,7 +532,7 @@ struct ProjectReportContent {
         insights: [InsightSummary],
         insightsHeading: String
     ) -> [ReportBlock] {
-        let openCount = counts.open + counts.prio + counts.waiting
+        let openCount = counts.open + counts.prio + counts.doing + counts.waiting
         let isEmpty = counts.done == 0 && openCount == 0 && insights.isEmpty
         var blocks: [ReportBlock] = []
         // The heading always has a next block ("ingen data" at least).
@@ -603,6 +604,7 @@ struct ProjectReportContent {
         var parts = ["Klara \(counts.done)", "Öppna \(openCount)"]
         var openDetail: [String] = []
         if counts.prio > 0 { openDetail.append("prio \(counts.prio)") }
+        if counts.doing > 0 { openDetail.append("pågår \(counts.doing)") }
         if counts.waiting > 0 { openDetail.append("väntar \(counts.waiting)") }
         if !openDetail.isEmpty { parts[1] += " (varav \(openDetail.joined(separator: ", ")))" }
         return parts.joined(separator: " · ")

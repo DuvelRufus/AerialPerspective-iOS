@@ -8,10 +8,11 @@
 import Foundation
 import Supabase
 
-/// The actions.state column. `open`/`done` drive today's UI; `prio` and
-/// `waiting` get affordances in a later change.
+/// The actions.state column. open/prio/waiting are the to-do states
+/// (Todo column in kanban), doing is work in progress, done is finished.
+/// Unknown DB values still read as .open (ProjectAction.taskState).
 enum TaskState: String {
-    case open, prio, waiting, done
+    case open, prio, doing, waiting, done
 }
 
 // Equatable so section moves can animate on .animation(value: actions).
@@ -80,11 +81,15 @@ enum ActionStoreError: LocalizedError {
     /// The guarded update matched no row: the task is no longer done (or
     /// is gone / not visible to this user).
     case notDone
+    /// A state update matched no row: the task is gone or not visible.
+    case notFound
 
     var errorDescription: String? {
         switch self {
         case .notDone:
             return "Uppgiften är inte längre markerad som klar. Datumet sparades inte."
+        case .notFound:
+            return "Uppgiften hittades inte. Statusen sparades inte."
         }
     }
 }
@@ -172,8 +177,9 @@ class ActionStore {
     }
 
     /// Sets the state column (the only status column since R5) with
-    /// optimistic update and rollback.
-    func setState(_ action: ProjectAction, to newState: TaskState) async {
+    /// optimistic update and rollback. Throws after rolling back, so the
+    /// caller can show the failure — no silent rollback.
+    func setState(_ action: ProjectAction, to newState: TaskState) async throws {
         guard let index = actions.firstIndex(where: { $0.id == action.id }) else { return }
         actions[index].state = newState.rawValue
         do {
@@ -188,8 +194,10 @@ class ActionStore {
                 .select()
                 .execute()
                 .value
-            if let row = rows.first,
-               let index = actions.firstIndex(where: { $0.id == action.id }),
+            // Zero matched rows (deleted / not visible) is a failure too —
+            // otherwise the optimistic state would stick locally.
+            guard let row = rows.first else { throw ActionStoreError.notFound }
+            if let index = actions.firstIndex(where: { $0.id == action.id }),
                actions[index].state == newState.rawValue {
                 actions[index] = row
             }
@@ -198,6 +206,7 @@ class ActionStore {
                 actions[index].state = action.state
             }
             print("ActionStore setState error: \(error)")
+            throw error
         }
     }
 
@@ -218,10 +227,10 @@ class ActionStore {
         }
     }
 
-    func toggle(_ action: ProjectAction) async {
+    func toggle(_ action: ProjectAction) async throws {
         // Un-toggling done lands on "open" regardless of any earlier
-        // prio/waiting — decided; sections (R4b-2) may revisit.
-        await setState(action, to: action.isDone ? .open : .done)
+        // prio/doing/waiting — decided; sections (R4b-2) may revisit.
+        try await setState(action, to: action.isDone ? .open : .done)
     }
 
     /// Hard delete with optimistic removal; the row is re-inserted at its

@@ -65,6 +65,7 @@ struct AdjacentDelta {
 struct ActionCounts {
     var open = 0
     var prio = 0
+    var doing = 0
     var waiting = 0
     var done = 0
     /// done split by whether completed_at is set.

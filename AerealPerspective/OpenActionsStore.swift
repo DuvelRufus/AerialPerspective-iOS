@@ -27,6 +27,7 @@ struct OpenActionRow: Identifiable {
 class OpenActionsStore {
     var prio: [OpenActionRow] = []
     var open: [OpenActionRow] = []
+    var doing: [OpenActionRow] = []
     var waiting: [OpenActionRow] = []
     var isLoading = false
     var error: Error? = nil
@@ -85,6 +86,7 @@ class OpenActionsStore {
 
             prio = sortedByUrgency(groups[.prio] ?? [])
             open = sortedByUrgency(groups[.open] ?? [])
+            doing = sortedByUrgency(groups[.doing] ?? [])
             waiting = sortedByUrgency(groups[.waiting] ?? [])
         } catch is CancellationError {
             // Cancelled by a newer load or view teardown (pull-to-refresh,
