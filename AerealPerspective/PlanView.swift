@@ -426,15 +426,17 @@ struct PlanView: View {
             }
             .contentMargins(.horizontal, 16, for: .scrollContent)
             .scrollTargetBehavior(.viewAligned)
+            // The board itself never moves vertically — only a column
+            // whose cards overflow scrolls, inside its own ScrollView.
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         }
         .padding(.top, 12)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: sectionSignature(sections))
-        // Environment-based: each column's vertical ScrollView picks it up.
-        .refreshable {
-            actionStore.error = nil
-            await actionStore.fetch(projectId: project.id)
-            await load()
-        }
+        // No .refreshable here: it is environment-based, so every column's
+        // ScrollView would get its own pull-down spinner and bounce out of
+        // line with the others. The board refetches on switch-in and after
+        // every move instead.
+        .task { await refetchBoard() }
         .overlay(alignment: .bottomTrailing) {
             addButton
                 .padding(.trailing, 20)
@@ -489,6 +491,9 @@ struct PlanView: View {
                 .padding(.bottom, 96)
             }
             .scrollIndicators(.hidden)
+            // Scrolls and bounces only when the cards are taller than the
+            // column; a short column stays put.
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -668,7 +673,13 @@ struct PlanView: View {
                 return
             }
             errorMessage = nil
-            setLinkedState(item, to: column.targetState)
+            if let action = linkedAction(item) {
+                moveAction(action, to: column.targetState)
+            } else {
+                createLinkedAction(item, state: column.targetState) {
+                    await refetchBoard()
+                }
+            }
         case .action(let stale):
             // Re-read: setState rolls back to the state it is handed, so it
             // must be the current row, not the one captured at drag start.
@@ -676,13 +687,35 @@ struct PlanView: View {
                 reportMoveFailure("Uppgiften hittades inte. Den har inte flyttats.")
                 return
             }
-            applyState(action, column.targetState)
+            moveAction(action, to: column.targetState)
+        }
+    }
+
+    /// applyState plus a refetch once the write settled either way —
+    /// kanban has no pull-to-refresh, so this keeps the board current.
+    private func moveAction(_ action: ProjectAction, to state: TaskState) {
+        errorMessage = nil
+        Task {
+            do {
+                try await actionStore.setState(action, to: state)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            await refetchBoard()
         }
     }
 
     private func reportMoveFailure(_ message: String) {
         errorMessage = message
         print("PlanView: kanban move failed: \(message)")
+        Task { await refetchBoard() }
+    }
+
+    /// Actions only — load() would clear errorMessage and hide a move's
+    /// failure. Plan items don't change from the board.
+    private func refetchBoard() async {
+        actionStore.error = nil
+        await actionStore.fetch(projectId: project.id)
     }
 
     // MARK: - Add task
@@ -1309,7 +1342,9 @@ struct PlanView: View {
         }
     }
 
-    private func createLinkedAction(_ item: PlanItem, state: TaskState = .done) {
+    /// `then` runs after the insert settled, success or failure (kanban
+    /// refetch); list callers pass nothing.
+    private func createLinkedAction(_ item: PlanItem, state: TaskState = .done, then: (() async -> Void)? = nil) {
         // One insert per plan item: a second move while the first insert is
         // in flight (fast swipes, drag + menu) would otherwise create two
         // actions with the same plan_action_id.
@@ -1351,6 +1386,7 @@ struct PlanView: View {
                 errorMessage = error.localizedDescription
                 print("PlanView: createLinkedAction error: \(error)")
             }
+            await then?()
         }
     }
 
