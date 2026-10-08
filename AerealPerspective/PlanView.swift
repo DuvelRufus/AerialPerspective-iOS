@@ -1249,12 +1249,12 @@ struct PlanView: View {
         .minTapTarget()
     }
 
-    /// "12 okt" for a done action's completion date, "ca 12 okt" when set
-    /// by hand; nil when not done or undated.
+    /// "12 okt" for a done action's completion date; nil when not done or
+    /// undated.
     private func completionDateText(_ action: ProjectAction?) -> String? {
         guard let action, action.isDone, let date = action.completedAt else { return nil }
         let day = date.formatted(.dateTime.day(.twoDigits).month(.abbreviated))
-        return action.completedAtManual ? "ca \(day)" : day
+        return day
     }
 
     @ViewBuilder
