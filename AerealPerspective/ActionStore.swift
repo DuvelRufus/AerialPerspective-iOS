@@ -53,6 +53,27 @@ struct ProjectAction: Identifiable, Codable, Equatable {
     var taskState: TaskState { TaskState(rawValue: state) ?? .open }
 
     var isDone: Bool { taskState == .done }
+
+    /// Derived from the link columns; the plan link wins over the insight
+    /// link. A link the DB nulled (SET NULL) reads as .own.
+    var origin: ActionOrigin {
+        if planActionId != nil { return .plan }
+        if insightId != nil { return .insight }
+        return .own
+    }
+}
+
+/// Where a task came from — display only, never stored.
+enum ActionOrigin {
+    case plan, insight, own
+
+    var label: String {
+        switch self {
+        case .plan:    return "Plan"
+        case .insight: return "Insikt"
+        case .own:     return "Egen"
+        }
+    }
 }
 
 // In an extension so the memberwise initializer survives.

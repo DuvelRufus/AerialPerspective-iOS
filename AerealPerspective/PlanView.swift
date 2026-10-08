@@ -566,26 +566,32 @@ struct PlanView: View {
                             .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
                             .multilineTextAlignment(.leading)
                     }
-                    if rowDomain(row) != nil || completionDateText(completed) != nil {
-                        HStack(spacing: 6) {
-                            if let domain = rowDomain(row) {
-                                if let band = domain.band {
-                                    Text(domain.label)
-                                        .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(band)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(band.opacity(0.15))
-                                        .clipShape(Capsule())
-                                } else {
-                                    // No score for the domain: plain, no pill.
-                                    Text(domain.label)
-                                        .font(.caption)
-                                        .foregroundStyle(Color.apTextTertiary)
-                                }
+                    // Always shown: the origin label is always present.
+                    // The domain yields first when the card is narrow.
+                    HStack(spacing: 6) {
+                        if let domain = rowDomain(row) {
+                            if let band = domain.band {
+                                Text(domain.label)
+                                    .font(.caption2.weight(.semibold))
+                                    .lineLimit(1)
+                                    .foregroundStyle(band)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(band.opacity(0.15))
+                                    .clipShape(Capsule())
+                                    .layoutPriority(-1)
+                            } else {
+                                // No score for the domain: plain, no pill.
+                                Text(domain.label)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .foregroundStyle(Color.apTextTertiary)
+                                    .layoutPriority(-1)
                             }
-                            completionDateLabel(completed)
                         }
+                        originLabel(rowOrigin(row))
+                        completionDateLabel(completed)
+                            .lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -661,6 +667,14 @@ struct PlanView: View {
         switch row {
         case .planItem(let item): return linkedAction(item)
         case .action(let action): return action
+        }
+    }
+
+    /// A plan item is .plan whether or not it has a linked action yet.
+    private func rowOrigin(_ row: PlanRow) -> ActionOrigin {
+        switch row {
+        case .planItem:           return .plan
+        case .action(let action): return action.origin
         }
     }
 
@@ -1179,35 +1193,35 @@ struct PlanView: View {
                     .strikethrough(done)
                     .foregroundStyle(done ? Color.apTextTertiary : Color.apTextPrimary)
                     .multilineTextAlignment(.leading)
-                // Domain pill (score-band colored) first, then the state tag
-                // that keeps Prio/Väntar legible away from the section
-                // header. ATT GÖRA and KLART rows carry no state tag.
-                // The phase is data-only, never shown.
-                if stateTag(item) != nil || domainLabel(item) != nil || completionDateText(linkedAction(item)) != nil {
-                    HStack(spacing: 6) {
-                        if let domain = domainLabel(item) {
-                            if let band = domainBandColor(item) {
-                                Text(domain)
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(band)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(band.opacity(0.15))
-                                    .clipShape(Capsule())
-                            } else {
-                                // No score for the domain: plain, no pill.
-                                Text(domain)
-                                    .font(.caption)
-                                    .foregroundStyle(Color.apTextTertiary)
-                            }
-                        }
-                        if let tag = stateTag(item) {
-                            Text(tag.word)
+                // Domain pill (score-band colored) first, then the origin,
+                // then the state tag that keeps Prio/Väntar legible away
+                // from the section header. ATT GÖRA and KLART rows carry no
+                // state tag. Always shown: the origin label is always
+                // present. The phase is data-only, never shown.
+                HStack(spacing: 6) {
+                    if let domain = domainLabel(item) {
+                        if let band = domainBandColor(item) {
+                            Text(domain)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(band)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(band.opacity(0.15))
+                                .clipShape(Capsule())
+                        } else {
+                            // No score for the domain: plain, no pill.
+                            Text(domain)
                                 .font(.caption)
-                                .foregroundStyle(tag.color)
+                                .foregroundStyle(Color.apTextTertiary)
                         }
-                        completionDateLabel(linkedAction(item))
                     }
+                    originLabel(.plan)
+                    if let tag = stateTag(item) {
+                        Text(tag.word)
+                            .font(.caption)
+                            .foregroundStyle(tag.color)
+                    }
+                    completionDateLabel(linkedAction(item))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1247,6 +1261,7 @@ struct PlanView: View {
                                 .font(.caption)
                                 .foregroundStyle(Color.apTextTertiary)
                         }
+                        originLabel(action.origin)
                         if let tag = actionStateTag(action) {
                             Text(tag.word)
                                 .font(.caption)
@@ -1254,8 +1269,10 @@ struct PlanView: View {
                         }
                         completionDateLabel(action)
                     }
-                } else if actionStateTag(action) != nil || completionDateText(action) != nil {
+                } else {
+                    // Always shown: the origin label is always present.
                     HStack(spacing: 6) {
+                        originLabel(action.origin)
                         if let tag = actionStateTag(action) {
                             Text(tag.word)
                                 .font(.caption)
@@ -1310,6 +1327,16 @@ struct PlanView: View {
                 .font(.caption)
                 .foregroundStyle(Color.apTextTertiary)
         }
+    }
+
+    /// "Plan" / "Insikt" / "Egen" beside the domain pill. Never compresses —
+    /// the domain yields first.
+    private func originLabel(_ origin: ActionOrigin) -> some View {
+        Text(origin.label)
+            .font(.caption2)
+            .foregroundStyle(Color.apTextTertiary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
     }
 
     private func actionStateTag(_ action: ProjectAction) -> (word: String, color: Color)? {

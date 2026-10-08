@@ -129,6 +129,11 @@ struct TasksLensView: View {
             HStack(spacing: 6) {
                 teamPill(row.teamName)
                 domainPill(row)
+                Text(row.action.origin.label)
+                    .font(.caption2)
+                    .foregroundStyle(Color.apTextTertiary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, 14)
