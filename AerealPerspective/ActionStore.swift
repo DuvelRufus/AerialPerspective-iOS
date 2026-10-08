@@ -83,6 +83,8 @@ enum ActionStoreError: LocalizedError {
     case notDone
     /// A state update matched no row: the task is gone or not visible.
     case notFound
+    /// A title/domain edit matched no row: the task is gone or not visible.
+    case editNotSaved
 
     var errorDescription: String? {
         switch self {
@@ -90,6 +92,8 @@ enum ActionStoreError: LocalizedError {
             return "Uppgiften är inte längre markerad som klar. Datumet sparades inte."
         case .notFound:
             return "Uppgiften hittades inte. Statusen sparades inte."
+        case .editNotSaved:
+            return "Ändringen sparades inte."
         }
     }
 }
@@ -256,7 +260,7 @@ class ActionStore {
                 .select()
                 .execute()
                 .value
-            guard let row = rows.first else { throw ActionStoreError.notFound }
+            guard let row = rows.first else { throw ActionStoreError.editNotSaved }
             if let index = actions.firstIndex(where: { $0.id == action.id }) {
                 actions[index] = row
             }
