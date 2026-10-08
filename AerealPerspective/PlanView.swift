@@ -94,6 +94,14 @@ struct PlanView: View {
     @State private var showAddSheet = false
     /// The done action whose completion date is being edited (Datum swipe).
     @State private var datingAction: ProjectAction? = nil
+    /// The action being edited (Redigera swipe / kanban menu). Plan rows
+    /// edit domain only — their title is the plan item's text.
+    private struct EditingAction: Identifiable {
+        let action: ProjectAction
+        let showsTitleField: Bool
+        var id: UUID { action.id }
+    }
+    @State private var editingAction: EditingAction? = nil
 
     var body: some View {
         ZStack {
@@ -138,6 +146,15 @@ struct PlanView: View {
         .sheet(item: $datingAction) { action in
             CompletionDateSheet(action: action) { date in
                 try await actionStore.setCompletedDate(actionId: action.id, date: date)
+            }
+        }
+        .sheet(item: $editingAction) { editing in
+            EditActionSheet(
+                action: editing.action,
+                showsTitleField: editing.showsTitleField,
+                domainLabel: { questionStore.domainLabel($0, project: project) }
+            ) { title, domain in
+                try await actionStore.update(editing.action, title: title, domain: domain)
             }
         }
     }
@@ -598,6 +615,15 @@ struct PlanView: View {
                     }
                 }
             }
+            if let a = rowCompletedAction(row) {
+                Section {
+                    Button {
+                        editingAction = editTarget(row, action: a)
+                    } label: {
+                        Label("Redigera", systemImage: "pencil")
+                    }
+                }
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.subheadline.weight(.semibold))
@@ -605,6 +631,14 @@ struct PlanView: View {
                 .minTapTarget(32)
         }
         .accessibilityLabel("Fler val")
+    }
+
+    /// Plan rows show the plan item's text, so only the domain is editable.
+    private func editTarget(_ row: PlanRow, action: ProjectAction) -> EditingAction {
+        switch row {
+        case .planItem: return EditingAction(action: action, showsTitleField: false)
+        case .action:   return EditingAction(action: action, showsTitleField: true)
+        }
     }
 
     private func rowState(_ row: PlanRow) -> TaskState {
@@ -801,7 +835,7 @@ struct PlanView: View {
     /// Lower domain score = more urgent. Items without a resolvable domain
     /// sort last within their section.
     private func urgency(_ item: PlanItem) -> Int {
-        guard let raw = item.domain,
+        guard let raw = itemDomain(item),
               let domain = Domain(caseInsensitive: raw),
               let score = domainScores.first(where: { $0.domain == domain })?.score
         else { return Int.max }
@@ -1003,6 +1037,10 @@ struct PlanView: View {
         if let linked = linkedAction(item), linked.isDone {
             actions.insert(dateSwipeAction(linked), at: 2)
         }
+        // Redigera only with a linked action to edit — domain only.
+        if let linked = linkedAction(item) {
+            actions.insert(editSwipeAction(linked, showsTitleField: false), at: actions.count - 1)
+        }
         return rowContent(item)
             .apSwipeActions(id: item.id, openId: $openSwipeId, actions: actions)
     }
@@ -1011,6 +1049,13 @@ struct PlanView: View {
     private func dateSwipeAction(_ action: ProjectAction) -> APSwipeAction {
         APSwipeAction(title: "Datum", systemImage: "calendar", color: .apStrong) {
             datingAction = action
+        }
+    }
+
+    /// Opens the title/domain edit sheet.
+    private func editSwipeAction(_ action: ProjectAction, showsTitleField: Bool) -> APSwipeAction {
+        APSwipeAction(title: "Redigera", systemImage: "pencil", color: .apTextTertiary) {
+            editingAction = EditingAction(action: action, showsTitleField: showsTitleField)
         }
     }
 
@@ -1042,6 +1087,7 @@ struct PlanView: View {
         if action.isDone {
             actions.insert(dateSwipeAction(action), at: 2)
         }
+        actions.insert(editSwipeAction(action, showsTitleField: true), at: actions.count - 1)
         return actionRowContent(action)
             .apSwipeActions(id: action.id, openId: $openSwipeId, actions: actions)
     }
@@ -1313,17 +1359,23 @@ struct PlanView: View {
         return pendingPlanStates[item.id] == .done
     }
 
+    /// The linked action's domain wins — it is the editable one; the plan
+    /// item's own domain covers rows without a linked action.
+    private func itemDomain(_ item: PlanItem) -> String? {
+        linkedAction(item)?.domain ?? item.domain
+    }
+
     private func domainLabel(_ item: PlanItem) -> String? {
         // The item's domain is the action's category, shown only when valid.
         // Case-insensitive, displayed as the project template's label.
-        guard let raw = item.domain, let domain = Domain(caseInsensitive: raw) else { return nil }
+        guard let raw = itemDomain(item), let domain = Domain(caseInsensitive: raw) else { return nil }
         return questionStore.domainLabel(domain, project: project)
     }
 
     /// Score-band color for the item's domain via the shared helper;
     /// nil (unknown domain or no score) falls back to plain text.
     private func domainBandColor(_ item: PlanItem) -> Color? {
-        guard let raw = item.domain,
+        guard let raw = itemDomain(item),
               let domain = Domain(caseInsensitive: raw),
               let score = domainScores.first(where: { $0.domain == domain })?.score
         else { return nil }
@@ -1782,6 +1834,156 @@ private struct CompletionDateSheet: View {
         } catch {
             errorMessage = error.localizedDescription
             print("CompletionDateSheet: save error: \(error)")
+        }
+    }
+}
+
+// MARK: - Edit Action Sheet
+
+/// Title and domain edit for an existing action. Sends only what changed;
+/// nothing changed closes without a write. Stays open on failure and
+/// shows why.
+private struct EditActionSheet: View {
+    let action: ProjectAction
+    /// false for a plan row: its visible title is the plan item's text, so
+    /// only the domain chips are shown.
+    let showsTitleField: Bool
+    /// Display only — onSave still hands back the Domain (rawValue in DB).
+    let domainLabel: (Domain) -> String
+    /// nil = that field is unchanged.
+    let onSave: (String?, Domain?) async throws -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    /// nil when the stored domain matches no Domain — no chip preselected.
+    @State private var selected: Domain?
+    @State private var isSaving = false
+    @State private var errorMessage: String? = nil
+
+    init(
+        action: ProjectAction,
+        showsTitleField: Bool,
+        domainLabel: @escaping (Domain) -> String,
+        onSave: @escaping (String?, Domain?) async throws -> Void
+    ) {
+        self.action = action
+        self.showsTitleField = showsTitleField
+        self.domainLabel = domainLabel
+        self.onSave = onSave
+        _title = State(initialValue: action.title)
+        _selected = State(initialValue: Domain(caseInsensitive: action.domain))
+    }
+
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespaces)
+    }
+
+    private var changedTitle: String? {
+        guard showsTitleField, trimmedTitle != action.title else { return nil }
+        return trimmedTitle
+    }
+
+    private var changedDomain: Domain? {
+        guard let selected, selected != Domain(caseInsensitive: action.domain) else { return nil }
+        return selected
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.apBackground.ignoresSafeArea()
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        APSectionHeader(title: "DOMÄN")
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+                            ForEach(Domain.allCases, id: \.self) { domain in
+                                domainChip(domain)
+                            }
+                        }
+                    }
+
+                    if showsTitleField {
+                        VStack(alignment: .leading, spacing: 8) {
+                            APSectionHeader(title: "ÅTGÄRD")
+                            TextField("", text: $title)
+                                .textFieldStyle(.plain)
+                                .foregroundStyle(.apTextPrimary)
+                                .padding()
+                                .background(Color.apSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.apRisk)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    let isDisabled = isSaving || (showsTitleField && trimmedTitle.isEmpty)
+                    APPillButton(title: "Spara", action: {
+                        Task { await save() }
+                    })
+                    .opacity(isDisabled ? 0.5 : 1)
+                    .disabled(isDisabled)
+
+                    APPillButton(title: "Avbryt", action: { dismiss() }, style: .secondary)
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationTitle("Redigera uppgift")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+            .toolbarBackground(Color.apBackground, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func domainChip(_ domain: Domain) -> some View {
+        Button {
+            selected = domain
+        } label: {
+            Text(domainLabel(domain))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(selected == domain ? .white : Color.apTextSecondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(
+                    Capsule().fill(selected == domain ? Color.apOrange : Color.apSurface)
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        selected == domain ? Color.clear : Color.apHairline,
+                        lineWidth: 0.5
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .haptic(.light)
+    }
+
+    private func save() async {
+        if showsTitleField, trimmedTitle.isEmpty { return }
+        let title = changedTitle
+        let domain = changedDomain
+        guard title != nil || domain != nil else {
+            dismiss()
+            return
+        }
+
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+        do {
+            try await onSave(title, domain)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            print("EditActionSheet: save error: \(error)")
         }
     }
 }

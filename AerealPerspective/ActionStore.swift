@@ -117,6 +117,23 @@ private struct CompletedDateUpdate: Encodable {
     let completed_at_manual: Bool
 }
 
+/// Title and/or domain edit. Only the fields that changed are encoded;
+/// never state or the completed_at columns.
+private struct TitleDomainUpdate: Encodable {
+    let title: String?
+    let domain: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title, domain
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(title, forKey: .title)
+        try c.encodeIfPresent(domain, forKey: .domain)
+    }
+}
+
 @MainActor
 @Observable
 class ActionStore {
@@ -224,6 +241,28 @@ class ActionStore {
         guard let row = rows.first else { throw ActionStoreError.notDone }
         if let index = actions.firstIndex(where: { $0.id == actionId }) {
             actions[index] = row
+        }
+    }
+
+    /// Edits title and/or domain; nil leaves that column untouched. The
+    /// returned row replaces the local one; zero matched rows throws.
+    func update(_ action: ProjectAction, title: String?, domain: Domain?) async throws {
+        guard title != nil || domain != nil else { return }
+        do {
+            let rows: [ProjectAction] = try await supabase
+                .from("actions")
+                .update(TitleDomainUpdate(title: title, domain: domain?.rawValue))
+                .eq("id", value: action.id)
+                .select()
+                .execute()
+                .value
+            guard let row = rows.first else { throw ActionStoreError.notFound }
+            if let index = actions.firstIndex(where: { $0.id == action.id }) {
+                actions[index] = row
+            }
+        } catch {
+            print("ActionStore update error: \(error)")
+            throw error
         }
     }
 
