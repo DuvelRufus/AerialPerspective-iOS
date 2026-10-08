@@ -9,6 +9,14 @@ import Foundation
 import SwiftUI
 import Supabase
 
+/// A completed assessment's total and its deltas; both deltas are nil on
+/// the first completed assessment.
+private struct ScoreSummary {
+    let total: Int
+    let fromStart: Int?
+    let sincePrevious: Int?
+}
+
 struct AssessmentListView: View {
     var project: Project
     var questionStore: QuestionStore
@@ -16,7 +24,11 @@ struct AssessmentListView: View {
     @State private var assessmentStore = AssessmentStore()
     @State private var isCreating = false
     @State private var createError: String? = nil
-    @State private var answeredCounts: [UUID: Int] = [:]
+    /// assessmentId → [questionId: answerOptionId], answered rows only.
+    /// Drives both completion (its count) and the score summaries.
+    @State private var answersByAssessment: [UUID: [UUID: UUID]] = [:]
+    /// Completed assessments only, computed once per fetch — not per card.
+    @State private var scoreSummaries: [UUID: ScoreSummary] = [:]
     /// Assessments that have at least one insights row — distinguishes
     /// "not generated" from "all handled" in the Insikter chip.
     @State private var insightAssessmentIds: Set<UUID> = []
@@ -43,7 +55,7 @@ struct AssessmentListView: View {
                     assessmentStore.error = nil
                     Task {
                         await assessmentStore.fetch(projectId: project.id)
-                        await fetchAnsweredCounts()
+                        await fetchAnswers()
                         await fetchInsightStatus()
                         await fetchPlanIds()
                     }
@@ -69,7 +81,7 @@ struct AssessmentListView: View {
         }
         .task {
             await assessmentStore.fetch(projectId: project.id)
-            await fetchAnsweredCounts()
+            await fetchAnswers()
             await fetchInsightStatus()
             await fetchPlanIds()
         }
@@ -142,7 +154,7 @@ struct AssessmentListView: View {
         }
         .refreshable {
             await assessmentStore.fetch(projectId: project.id)
-            await fetchAnsweredCounts()
+            await fetchAnswers()
             await fetchInsightStatus()
             await fetchPlanIds()
         }
@@ -186,26 +198,77 @@ struct AssessmentListView: View {
                     Text("Assessment \(assessment.version)")
                         .font(.title3.bold())
                         .foregroundStyle(.apTextPrimary)
-                    Text(assessment.createdAt.formatted(date: .abbreviated, time: .omitted))
+                    Text(dateLine(assessment, completed: completed))
                         .font(.caption)
                         .foregroundStyle(.apTextSecondary)
+                        .lineLimit(1)
                     if completed {
+                        if let summary = scoreSummaries[assessment.id], summary.fromStart == nil {
+                            Text("Start")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Color.apTextTertiary)
+                                .lineLimit(1)
+                        }
                         // Chips only once completed — before that neither
                         // insights nor plan can be generated, and the
                         // progress line below carries the row's state.
-                        HStack(spacing: 6) {
-                            insightChip(for: assessment)
-                            generationChip("Plan", generated: planAssessmentIds.contains(assessment.id))
-                        }
-                        .padding(.top, 2)
+                        chipRows(for: assessment)
+                            .padding(.top, 2)
                     } else {
-                        Text("\(answeredCounts[assessment.id] ?? 0)/\(completionTarget(assessment))")
+                        Text("\(answeredCount(assessment))/\(completionTarget(assessment))")
                             .font(.caption)
                             .foregroundStyle(.apTextTertiary)
                     }
                 }
                 Spacer()
             }
+        }
+    }
+
+    /// "<datum> · Totalt <N>" on completed rows with a summary; the date
+    /// alone otherwise (incomplete rows, or questions unresolved).
+    private func dateLine(_ assessment: Assessment, completed: Bool) -> String {
+        let date = assessment.createdAt.formatted(date: .abbreviated, time: .omitted)
+        guard completed, let summary = scoreSummaries[assessment.id] else { return date }
+        return "\(date) · Totalt \(summary.total)"
+    }
+
+    /// The unchanged status chips, plus the two delta chips when this isn't
+    /// the first completed assessment. One row if everything fits, else the
+    /// delta chips drop to their own row below (and stack if even that
+    /// row is too wide) — chips never wrap.
+    @ViewBuilder
+    private func chipRows(for assessment: Assessment) -> some View {
+        let statusChips = HStack(spacing: 6) {
+            insightChip(for: assessment)
+            generationChip("Plan", generated: planAssessmentIds.contains(assessment.id))
+        }
+        if let summary = scoreSummaries[assessment.id],
+           let fromStart = summary.fromStart,
+           let sincePrevious = summary.sincePrevious {
+            let fromStartChip = APTrendChip(delta: fromStart, suffix: "från start")
+            let sincePreviousChip = APTrendChip(delta: sincePrevious, suffix: "sedan förra")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    statusChips
+                    fromStartChip
+                    sincePreviousChip
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    statusChips
+                    HStack(spacing: 6) {
+                        fromStartChip
+                        sincePreviousChip
+                    }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    statusChips
+                    fromStartChip
+                    sincePreviousChip
+                }
+            }
+        } else {
+            statusChips
         }
     }
 
@@ -255,7 +318,11 @@ struct AssessmentListView: View {
 
     private func isComplete(_ assessment: Assessment) -> Bool {
         let total = completionTarget(assessment)
-        return total > 0 && (answeredCounts[assessment.id] ?? 0) >= total
+        return total > 0 && answeredCount(assessment) >= total
+    }
+
+    private func answeredCount(_ assessment: Assessment) -> Int {
+        answersByAssessment[assessment.id]?.count ?? 0
     }
 
     /// The count frozen on the assessment, or the project template's
@@ -264,24 +331,72 @@ struct AssessmentListView: View {
         assessment.questionCount ?? questionStore.questions(for: project).count
     }
 
-    private func fetchAnsweredCounts() async {
+    /// All answers for the list's assessments, paginated past PostgREST's
+    /// silent 1000-row cap (the AssessmentScoresLoader pattern), grouped
+    /// per assessment in the same pass; then the score summaries.
+    private func fetchAnswers() async {
         let ids = assessmentStore.assessments.map { $0.id.uuidString }
         guard !ids.isEmpty else { return }
         do {
-            let rows: [Answer] = try await supabase
-                .from("answers")
-                .select()
-                .in("assessment_id", values: ids)
-                .execute()
-                .value
-            var counts: [UUID: Int] = [:]
-            for row in rows where row.answerOptionId != nil {
-                counts[row.assessmentId, default: 0] += 1
+            var grouped: [UUID: [UUID: UUID]] = [:]
+            // Ordered so page windows stay disjoint; a short page ends it.
+            let pageSize = 1000
+            var offset = 0
+            while true {
+                let page: [Answer] = try await supabase
+                    .from("answers")
+                    .select()
+                    .in("assessment_id", values: ids)
+                    .order("id", ascending: true)
+                    .range(from: offset, to: offset + pageSize - 1)
+                    .execute()
+                    .value
+                for row in page {
+                    guard let optionId = row.answerOptionId else { continue }
+                    grouped[row.assessmentId, default: [:]][row.questionId] = optionId
+                }
+                if page.count < pageSize { break }
+                offset += pageSize
             }
-            answeredCounts = counts
+            answersByAssessment = grouped
+            computeScoreSummaries()
         } catch {
-            print("AssessmentListView: fetchAnsweredCounts error: \(error)")
+            print("AssessmentListView: fetchAnswers error: \(error)")
         }
+    }
+
+    /// Total per completed assessment plus its delta against the first
+    /// (lowest-version) completed one and the nearest lower completed one —
+    /// incomplete assessments are skipped, never compared against. Same
+    /// inputs as ResultView.recomputeCurrentScores. Empty while the
+    /// project's questions are unresolved, so no all-zero totals show.
+    private func computeScoreSummaries() {
+        let questions = questionStore.questions(for: project)
+        guard !questions.isEmpty else {
+            scoreSummaries = [:]
+            return
+        }
+        let completed = assessmentStore.assessments
+            .filter(isComplete)
+            .sorted { $0.version < $1.version }
+        var summaries: [UUID: ScoreSummary] = [:]
+        var startTotal: Int? = nil
+        var previousTotal: Int? = nil
+        for assessment in completed {
+            let total = ScoringService.total(ScoringService.compute(
+                answers: answersByAssessment[assessment.id] ?? [:],
+                questions: questions,
+                options: questionStore.options
+            ))
+            summaries[assessment.id] = ScoreSummary(
+                total: total,
+                fromStart: startTotal.map { total - $0 },
+                sincePrevious: previousTotal.map { total - $0 }
+            )
+            if startTotal == nil { startTotal = total }
+            previousTotal = total
+        }
+        scoreSummaries = summaries
     }
 
     /// One batched existence query for the whole list (no N+1): which

@@ -254,31 +254,60 @@ struct OversiktView: View {
 
     // MARK: - Card pieces
 
-    /// ↑+N / ↓−N / →0 on the total-score delta; "NY" with one completed
-    /// assessment; nothing with zero.
+    /// ↑+N / ↓−N / →0 on the total-score delta (latest vs previous
+    /// completed), captioned "sedan förra" outside the chip; "NY" with one
+    /// completed assessment; nothing with zero.
     @ViewBuilder
     private func trendChip(_ row: TeamHealth) -> some View {
         if row.isNew {
-            chip("NY", color: .apOrange)
+            APChip(label: "NY", color: .apOrange)
         } else if let delta = row.delta {
-            if delta > 0 {
-                chip("↑ +\(delta)", color: .apStrong)
-            } else if delta < 0 {
-                chip("↓ \(delta)", color: .apRisk)
-            } else {
-                chip("→ 0", color: .apTextTertiary)
+            VStack(alignment: .trailing, spacing: 2) {
+                APTrendChip(delta: delta)
+                Text("sedan förra")
+                    .font(.caption2)
+                    .foregroundStyle(Color.apTextTertiary)
+                    .lineLimit(1)
             }
+            .fixedSize()
         }
     }
 
-    private func chip(_ label: String, color: Color) -> some View {
+}
+
+/// Small tinted capsule label — Översikt's trend chips and the
+/// assessment list's delta chips.
+struct APChip: View {
+    let label: String
+    let color: Color
+
+    var body: some View {
         Text(label)
             .font(.caption2.weight(.semibold).monospacedDigit())
             .foregroundStyle(color)
+            .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(color.opacity(0.15))
             .clipShape(Capsule())
     }
+}
 
+/// Score delta as ↑ +N (green) / ↓ −N (red) / → 0 (neutral), with an
+/// optional in-chip suffix ("från start").
+struct APTrendChip: View {
+    let delta: Int
+    var suffix: String? = nil
+
+    var body: some View {
+        let text: String = if delta > 0 {
+            "↑ +\(delta)"
+        } else if delta < 0 {
+            "↓ \(delta)"
+        } else {
+            "→ 0"
+        }
+        let color: Color = delta > 0 ? .apStrong : delta < 0 ? .apRisk : .apTextTertiary
+        APChip(label: suffix.map { "\(text) \($0)" } ?? text, color: color)
+    }
 }
