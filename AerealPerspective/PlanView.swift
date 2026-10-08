@@ -589,13 +589,22 @@ struct PlanView: View {
                     }
                 }
             }
+            if current == .done, let a = rowCompletedAction(row), a.isDone {
+                Section {
+                    Button {
+                        datingAction = a
+                    } label: {
+                        Label("Datum", systemImage: "calendar")
+                    }
+                }
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.apTextSecondary)
                 .minTapTarget(32)
         }
-        .accessibilityLabel("Flytta till")
+        .accessibilityLabel("Fler val")
     }
 
     private func rowState(_ row: PlanRow) -> TaskState {
