@@ -1692,7 +1692,7 @@ private struct AddTaskSheet: View {
 
 // MARK: - Completion Date Sheet
 
-/// Manual completion date for a done task: a day between creation and
+/// Manual completion date for a done task: any day up to and including
 /// today. Stays open on failure and shows why.
 private struct CompletionDateSheet: View {
     let action: ProjectAction
@@ -1709,11 +1709,9 @@ private struct CompletionDateSheet: View {
         _selected = State(initialValue: action.completedAt ?? Date.now)
     }
 
-    /// created_at...now; min() keeps the range valid if the device clock
-    /// is behind the server's created_at.
-    private var range: ClosedRange<Date> {
-        let now = Date.now
-        return min(action.createdAt, now)...now
+    /// Any day up to and including today.
+    private var range: PartialRangeThrough<Date> {
+        ...Date.now
     }
 
     var body: some View {
@@ -1758,13 +1756,13 @@ private struct CompletionDateSheet: View {
     }
 
     /// Noon local time on the picked day — a UTC-midnight shift can't move
-    /// it to the neighbouring day — clamped into created_at...now.
+    /// it to the neighbouring day — clamped to now at the latest.
     private func save() async {
         let calendar = Calendar.current
         var parts = calendar.dateComponents([.year, .month, .day], from: selected)
         parts.hour = 12
         let noon = calendar.date(from: parts) ?? selected
-        let date = max(min(noon, Date.now), action.createdAt)
+        let date = min(noon, Date.now)
 
         isSaving = true
         errorMessage = nil
