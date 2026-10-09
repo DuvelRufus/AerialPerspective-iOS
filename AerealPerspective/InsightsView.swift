@@ -109,7 +109,7 @@ struct InsightsView: View {
         VStack(spacing: 16) {
             ProgressView()
                 .tint(.apOrange)
-            Text("Analyserar...")
+            Text("Hämtar insikter...")
                 .foregroundStyle(.apTextSecondary)
                 .font(.subheadline)
         }
