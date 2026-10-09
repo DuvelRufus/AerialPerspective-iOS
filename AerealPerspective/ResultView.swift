@@ -30,6 +30,7 @@ struct ResultView: View {
     @State private var planStore = PlanStore()
     @State private var isAutoGenerating = false
     @State private var generationError: String? = nil
+    @State private var generationSteps = APGenerationSteps(ResultView.allGenerationSteps)
     /// Generation was needed but the project's template has no questions
     /// (fetch failed or templates unresolved) — nothing sent, nothing saved.
     @State private var questionsUnresolved = false
@@ -103,8 +104,8 @@ struct ResultView: View {
             } else if isAutoGenerating || awaitingGenerationDecision || generationError != nil {
                 // Full-screen while generating so the radar reveal fires
                 // only once the results actually appear.
-                APGenerationLoadingView(
-                    phrases: Self.generationPhrases,
+                APGenerationStepsView(
+                    steps: generationSteps,
                     errorMessage: generationError,
                     onRetry: {
                         generationError = nil
@@ -280,18 +281,15 @@ struct ResultView: View {
 
     // MARK: - Auto-generation (completion push-model)
 
-    /// The rolling lines shown while Claude works, in random order.
-    private static let generationPhrases: [String] = [
-        "Anropar Claude, sonnet-4-6 vaknar…",
-        "Läser av sex domäner, letar mönster…",
-        "Den här appen byggdes på under en månad, mestadels efter att barnen somnat.",
-        "Svåraste biten att bygga? Att låta dina avbockningar överleva när planen görs om.",
-        "Rumi: 'Igår var jag smart, så jag ville ändra världen. Idag är jag vis, så jag ändrar mig själv.'",
-        "Gåta: Ju mer du tar av mig, desto större blir jag. Vad är jag?",
-        "Översätter din bedömning till konkreta åtgärder…",
-        "En bra produktägare mäter inte hur mycket teamet levererar, utan om det rör sig åt rätt håll.",
-        "Byggd i SwiftUI mot Supabase, med Claude som bollplank och kodare. En person, fyra roller.",
-        "Let's practice patience, säger du till dig själv medan du väntar."
+    // The pipeline's real steps, in order. Each one starts at a code
+    // boundary in autoGenerateIfNeeded — never on a timer.
+    private static let stepFetch = "Hämtar underlag"
+    private static let stepAnalyze = "Analyserar svaren"
+    private static let stepSaveInsights = "Sparar insikter"
+    private static let stepBuildPlan = "Bygger planen"
+    private static let stepSavePlan = "Sparar planen"
+    private static let allGenerationSteps = [
+        stepFetch, stepAnalyze, stepSaveInsights, stepBuildPlan, stepSavePlan
     ]
 
     /// Generates whatever this assessment is missing (insights and/or an
@@ -301,6 +299,7 @@ struct ResultView: View {
     /// duplicate rows.
     private func autoGenerateIfNeeded() async {
         guard !isAutoGenerating else { return }
+        generationSteps = APGenerationSteps(Self.allGenerationSteps)
         await insightStore.fetch(assessmentId: assessment.id)
         guard insightStore.error == nil else { return }
         await planStore.loadNewestActivePlan(assessmentIdsNewestFirst: [assessment.id])
@@ -315,12 +314,20 @@ struct ResultView: View {
         }
         questionsUnresolved = false
 
+        // Only the halves that will actually run — a retry after a partial
+        // failure lists just the missing one.
+        generationSteps = APGenerationSteps(
+            [Self.stepFetch]
+            + (needsInsights ? [Self.stepAnalyze, Self.stepSaveInsights] : [])
+            + (needsPlan ? [Self.stepBuildPlan, Self.stepSavePlan] : [])
+        )
         generationError = nil
         isAutoGenerating = true
         defer { isAutoGenerating = false }
         let context = questionStore.generationContext(for: project)
         do {
             if needsInsights {
+                generationSteps.begin(Self.stepAnalyze)
                 let generated = try await EdgeFunctionService.generateInsights(
                     scores: domainScores,
                     answers: answerStore.answers,
@@ -329,9 +336,11 @@ struct ResultView: View {
                     templateName: context.templateName,
                     domainLabels: context.domainLabels
                 )
+                generationSteps.begin(Self.stepSaveInsights)
                 try await insightStore.save(generated, for: assessment.id)
             }
             if needsPlan {
+                generationSteps.begin(Self.stepBuildPlan)
                 let generated = try await EdgeFunctionService.generatePlan(
                     scores: domainScores,
                     answers: answerStore.answers,
@@ -343,12 +352,14 @@ struct ResultView: View {
                     domainLabels: context.domainLabels
                 )
                 // First generation for this assessment: no anchors to carry.
+                generationSteps.begin(Self.stepSavePlan)
                 try await planStore.regenerate(
                     assessmentId: assessment.id,
                     plan: PlanStore.translate(generated, keyMap: [:])
                 )
             }
         } catch {
+            generationSteps.fail()
             generationError = error.localizedDescription
             print("ResultView: auto-generation error: \(error)")
         }

@@ -371,112 +371,146 @@ extension View {
     }
 }
 
-// MARK: - APGenerationLoadingView
+// MARK: - APGenerationSteps
 
-/// Full-screen loading for the completion auto-generation pipeline: a
-/// breathing orange orb (same glow language as GlowBurst/radar) over ONE
-/// rolling status line at a time, drawn from `phrases` in random order and
-/// reshuffled each cycle so repeats feel fresh. When `errorMessage` is set
-/// the orb dims and retry/skip actions replace the rolling text — never a
+/// The real steps of a generation pipeline and where it is right now. The
+/// caller moves `begin(_:)` only at actual code boundaries (fetch, edge
+/// call, insert) — never on a timer — so the list never claims progress
+/// that hasn't happened.
+struct APGenerationSteps: Equatable {
+    private(set) var titles: [String]
+    private(set) var index = 0
+    private(set) var failed = false
+
+    init(_ titles: [String]) {
+        self.titles = titles
+    }
+
+    var total: Int { titles.count }
+    var current: String? { titles.indices.contains(index) ? titles[index] : nil }
+
+    /// Makes `title` the active step; everything before it reads as done.
+    mutating func begin(_ title: String) {
+        guard let i = titles.firstIndex(of: title) else { return }
+        index = i
+        failed = false
+    }
+
+    /// Marks the active step as the one that failed.
+    mutating func fail() {
+        failed = true
+    }
+}
+
+// MARK: - APGenerationStepsView
+
+/// Loading state for AI generation: a vertical list of the pipeline's real
+/// steps — done (check), active (filled marker), upcoming (dimmed). Moves
+/// only when `steps` moves; nothing loops. When `errorMessage` is set the
+/// failed step is marked and retry/skip actions follow the list — never a
 /// dead end.
-struct APGenerationLoadingView: View {
-    var phrases: [String]
+struct APGenerationStepsView: View {
+    var steps: APGenerationSteps
     var errorMessage: String? = nil
-    var onRetry: () -> Void
-    var onSkip: () -> Void
+    var onRetry: (() -> Void)? = nil
+    var onSkip: (() -> Void)? = nil
 
-    @State private var shuffled: [String] = []
-    @State private var index = 0
-    @State private var breathe = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private enum RowState {
+        case done, active, upcoming, failed
+    }
 
     var body: some View {
-        VStack(spacing: 44) {
-            orb
-            if errorMessage != nil {
-                errorContent
-            } else {
-                rollingText
-            }
-        }
-        .padding(.horizontal, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var orb: some View {
-        ZStack {
-            Circle()
-                .fill(Color.apOrange.opacity(0.12))
-                .frame(width: 160, height: 160)
-                .blur(radius: 24)
-                .scaleEffect(breathe ? 1.25 : 0.9)
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.apOrange.opacity(0.55), Color.apOrange.opacity(0.05)],
-                        center: .center,
-                        startRadius: 4,
-                        endRadius: 60
-                    )
-                )
-                .frame(width: 120, height: 120)
-                .scaleEffect(breathe ? 1.1 : 0.92)
-            Circle()
-                .fill(LinearGradient.apOrangeGradient)
-                .frame(width: 26, height: 26)
-                .blur(radius: 1)
-                .shadow(color: Color.apOrange.opacity(0.8), radius: breathe ? 22 : 10)
-                .scaleEffect(breathe ? 1.15 : 0.9)
-        }
-        .opacity(errorMessage == nil ? 1 : 0.35)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
-                breathe = true
-            }
-        }
-    }
-
-    private var currentPhrase: String? {
-        shuffled.isEmpty ? phrases.first : shuffled[index % shuffled.count]
-    }
-
-    private var rollingText: some View {
-        ZStack {
-            if let phrase = currentPhrase {
-                Text(phrase)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.apTextSecondary)
-                    .multilineTextAlignment(.center)
-                    .id(index)
-                    .transition(
-                        .asymmetric(
-                            insertion: .push(from: .bottom),
-                            removal: .push(from: .top)
-                        )
-                        .combined(with: .opacity)
-                    )
-            }
-        }
-        .frame(minHeight: 80, alignment: .top)
-        .task {
-            if shuffled.isEmpty { shuffled = phrases.shuffled() }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3.5))
-                guard !Task.isCancelled else { break }
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.9)) {
-                    if index + 1 >= shuffled.count {
-                        // New cycle: reshuffle, but never show the line we
-                        // just left twice in a row across the seam.
-                        var next = phrases.shuffled()
-                        if next.count > 1, next.first == currentPhrase {
-                            next.swapAt(0, 1)
-                        }
-                        shuffled = next
-                        index = 0
-                    } else {
-                        index += 1
-                    }
+        VStack(alignment: .leading, spacing: 44) {
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(Array(steps.titles.enumerated()), id: \.element) { i, title in
+                    row(title, index: i, state: state(at: i))
                 }
             }
+            if errorMessage != nil {
+                errorContent
+            }
+        }
+        .frame(width: 300, alignment: .leading)
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(
+            reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.4, dampingFraction: 0.85),
+            value: steps
+        )
+        .onChange(of: announcement) { _, new in
+            guard let new else { return }
+            AccessibilityNotification.Announcement(new).post()
+        }
+    }
+
+    private func state(at i: Int) -> RowState {
+        if i < steps.index { return .done }
+        if i > steps.index { return .upcoming }
+        return steps.failed ? .failed : .active
+    }
+
+    /// Spoken on every step change (and on failure) — the list moving is
+    /// otherwise silent to VoiceOver.
+    private var announcement: String? {
+        guard let current = steps.current else { return nil }
+        return steps.failed ? "Misslyckades: \(current)" : current
+    }
+
+    private func row(_ title: String, index i: Int, state: RowState) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            marker(state)
+                .frame(width: 20)
+                .id(state)
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
+            Text(title)
+                .font(.subheadline.weight(state == .active || state == .failed ? .semibold : .regular))
+                .foregroundStyle(textColor(state))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel(title, index: i, state: state))
+    }
+
+    @ViewBuilder
+    private func marker(_ state: RowState) -> some View {
+        switch state {
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.apStrong)
+        case .active:
+            // Static glow: it marks what is happening now, so it doesn't pulse.
+            Circle()
+                .fill(Color.apOrange)
+                .frame(width: 10, height: 10)
+                .shadow(color: Color.apOrange.opacity(0.8), radius: 6)
+        case .upcoming:
+            Circle()
+                .strokeBorder(Color.apTextTertiary, lineWidth: 1.5)
+                .frame(width: 10, height: 10)
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(Color.apRisk)
+        }
+    }
+
+    private func textColor(_ state: RowState) -> Color {
+        switch state {
+        case .done:     return .apTextSecondary
+        case .active:   return .apTextPrimary
+        case .upcoming: return .apTextTertiary
+        case .failed:   return .apRisk
+        }
+    }
+
+    private func accessibilityLabel(_ title: String, index i: Int, state: RowState) -> String {
+        let position = "steg \(i + 1) av \(steps.total)"
+        switch state {
+        case .done:     return "Klart: \(title), \(position)"
+        case .active:   return "Pågår: \(title), \(position)"
+        case .upcoming: return "Kommande: \(title), \(position)"
+        case .failed:   return "Misslyckades: \(title), \(position)"
         }
     }
 
@@ -491,48 +525,14 @@ struct APGenerationLoadingView: View {
                     .foregroundStyle(.apTextSecondary)
                     .multilineTextAlignment(.center)
             }
-            APPillButton(title: "Försök igen", action: onRetry)
-            APPillButton(title: "Visa resultat ändå", action: onSkip, style: .secondary)
-        }
-    }
-}
-
-// MARK: - APGeneratingState
-
-/// Loading state for AI generation: a pulsing sparkles icon over status
-/// phrases that cycle with a shimmer, so the wait reads as deliberate work.
-struct APGeneratingState: View {
-    var phrases: [String]
-    var interval: Double = 1.8
-
-    @State private var index = 0
-
-    var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 40))
-                .foregroundStyle(.apOrange)
-                .symbolEffect(.pulse)
-            ZStack {
-                Text(phrases[index % max(phrases.count, 1)])
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.apTextSecondary)
-                    .apShimmer()
-                    .id(index)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .move(edge: .top).combined(with: .opacity)))
+            if let onRetry {
+                APPillButton(title: "Försök igen", action: onRetry)
             }
-            .frame(height: 22)
-            .clipped()
-        }
-        .task {
-            guard phrases.count > 1 else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(interval))
-                withAnimation(.easeInOut(duration: 0.4)) { index += 1 }
+            if let onSkip {
+                APPillButton(title: "Visa resultat ändå", action: onSkip, style: .secondary)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 }
 

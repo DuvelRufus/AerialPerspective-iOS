@@ -87,6 +87,7 @@ struct PlanView: View {
     // View state
     @State private var isLoading = true
     @State private var isGenerating = false
+    @State private var generationSteps = APGenerationSteps(PlanView.generationStepTitles)
     @State private var errorMessage: String? = nil
     /// Set when generate() stopped because the project's template has no
     /// questions; the error state's retry refetches and generates again.
@@ -179,20 +180,18 @@ struct PlanView: View {
         }
     }
 
-    /// Cycled by APGeneratingState while generate-plan-funktionen kör.
-    private static let generationPhrases: [String] = [
-        "Analyserar dina svar...",
-        "Prioriterar åtgärder...",
-        "Bygger dag 1–30...",
-        "Bygger dag 31–60...",
-        "Bygger dag 61–90...",
-        "Finslipar planen..."
-    ]
+    // generate()'s real steps, in order. Each one starts at a code
+    // boundary — never on a timer.
+    private static let stepScores = "Hämtar poäng"
+    private static let stepBuildPlan = "Bygger planen"
+    private static let stepSavePlan = "Sparar planen"
+    private static let stepReload = "Laddar om"
+    private static let generationStepTitles = [stepScores, stepBuildPlan, stepSavePlan, stepReload]
 
     @ViewBuilder
     private var content: some View {
         if isGenerating {
-            APGeneratingState(phrases: Self.generationPhrases)
+            APGenerationStepsView(steps: generationSteps)
         } else if let target = unresolvedGenerationTarget {
             APErrorState(message: "Frågorna kunde inte laddas. Kontrollera din anslutning och försök igen.") {
                 Task {
@@ -1596,6 +1595,7 @@ struct PlanView: View {
             return
         }
         unresolvedGenerationTarget = nil
+        generationSteps = APGenerationSteps(Self.generationStepTitles)
         isGenerating = true
         defer { isGenerating = false }
         do {
@@ -1614,6 +1614,7 @@ struct PlanView: View {
             }
 
             let context = questionStore.generationContext(for: project)
+            generationSteps.begin(Self.stepBuildPlan)
             let generated = try await EdgeFunctionService.generatePlan(
                 scores: domainScores,
                 answers: answerStore.answers,
@@ -1625,6 +1626,7 @@ struct PlanView: View {
                 templateName: context.templateName,
                 domainLabels: context.domainLabels
             )
+            generationSteps.begin(Self.stepSavePlan)
             try await planStore.regenerate(
                 assessmentId: target.id,
                 plan: PlanStore.translate(generated, keyMap: keyMap)
@@ -1633,6 +1635,7 @@ struct PlanView: View {
             // The RPC re-links tasks' plan_action_id to the new plan's rows,
             // so the shared ActionStore must refetch too — otherwise done
             // states resolve against stale ids and render as 0/N klara.
+            generationSteps.begin(Self.stepReload)
             isLoading = true
             await actionStore.fetch(projectId: project.id)
             await load()
