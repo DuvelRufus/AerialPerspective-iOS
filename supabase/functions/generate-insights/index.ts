@@ -129,7 +129,7 @@ suggested_action: en kort konkret åtgärd på svenska i imperativ form, max 12 
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: "claude-sonnet-5-5",
         max_tokens: 1500,
         messages: [{ role: "user", content: prompt }],
       }),
