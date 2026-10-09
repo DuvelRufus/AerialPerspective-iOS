@@ -1,0 +1,7 @@
+project_id = "AerealPerspective"
+
+[functions.generate-insights]
+verify_jwt = true
+
+[functions.generate-plan]
+verify_jwt = true
