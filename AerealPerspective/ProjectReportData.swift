@@ -10,9 +10,12 @@ import Foundation
 /// Everything a project (team) report shows, as plain data — no views, no
 /// I/O. Built by ProjectReportLoader; a later step renders it.
 struct ProjectReportData {
-    /// The real name, or the loader's anonymizedName when anonymized.
+    /// The real name, or the loader's anonymizedName when nameHidden.
     let projectName: String
-    let anonymized: Bool
+    let nameHidden: Bool
+    /// Task and insight titles were left out by the loader: doneActions
+    /// carry an origin placeholder, latestInsights carry no titles.
+    let textsHidden: Bool
     /// The project template's display label per domain (domainLabel).
     let templateLabelsPerDomain: [Domain: String]
     let generatedAt: Date
@@ -38,7 +41,8 @@ struct ProjectReportData {
     /// Newest completion first; undated done tasks last, newest created first.
     let doneActions: [DoneAction]
 
-    /// The latest completed assessment's insights — title and domain only.
+    /// The latest completed assessment's insights — title and domain only;
+    /// title always nil when textsHidden.
     let latestInsights: [InsightSummary]
 }
 
@@ -76,7 +80,9 @@ struct ActionCounts {
 }
 
 struct DoneAction {
+    /// The task's title, or an origin placeholder when textsHidden.
     let title: String
+    let origin: ActionOrigin
     /// Raw actions.domain; may match no Domain.
     let domain: String
     let completedAt: Date?

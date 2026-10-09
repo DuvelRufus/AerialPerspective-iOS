@@ -585,6 +585,17 @@ struct ProjectReportContent {
         blocks.append(ReportBlock(keepWithNext: !insights.isEmpty) { columnHeading(insightsHeading).padding(.top, 2) })
         if insights.isEmpty {
             blocks.append(ReportBlock { MutedLine(text: "Inga insikter.") })
+        } else if data.textsHidden {
+            // No titles in the data — a count stands in for the list.
+            let countText = insights.count == 1 ? "1 insikt" : "\(insights.count) insikter"
+            blocks.append(ReportBlock {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("•").foregroundStyle(ReportPalette.accent)
+                    Text(countText)
+                        .foregroundStyle(ReportPalette.textPrimary)
+                }
+                .font(.system(size: 9))
+            })
         } else {
             for insight in insights {
                 blocks.append(ReportBlock {
@@ -613,9 +624,12 @@ struct ProjectReportContent {
     // MARK: 4. Metod
 
     private var methodSection: ReportSection {
-        let items: [(String, String)] = [
+        var items: [(String, String)] = [
             ("Underlag",
-             "Rapporten bygger på projektets assessments, svar, uppgifter och insikter. Endast slutförda assessments ingår: alla frågor i assessmentens frågeuppsättning besvarade."),
+             "Rapporten bygger på projektets assessments, svar, uppgifter och insikter. Endast slutförda assessments ingår: alla frågor i assessmentens frågeuppsättning besvarade."
+                + (data.textsHidden
+                    ? " Uppgifternas och insikternas texter ingår inte: en klar uppgift visas med sitt ursprung (planuppgift, insiktsuppgift eller egen uppgift), insikter som antal per domän."
+                    : "")),
             ("Poäng",
              "Varje svarsalternativ har en poäng: 10, 35, 65 eller 90. Poäng 0 betyder ingen data och räknas inte in. Domänpoängen är det avrundade medelvärdet av besvarade frågor i domänen; totalpoängen är det avrundade medelvärdet av domänpoängen. Samma beräkning som resultatvyn i appen."),
             ("Nivåer",
@@ -627,8 +641,16 @@ struct ProjectReportContent {
             ("Period",
              "Mellan vilka assessments en uppgift blev klar, utifrån assessmentdatumen: \"före v1\" före den första, \"efter vN\" efter den senaste."),
             ("Insikter",
-             "AI-genererade insikter från den senaste slutförda assessmenten, endast titlar, grupperade per domän."),
+             data.textsHidden
+                ? "AI-genererade insikter från den senaste slutförda assessmenten, endast antal per domän."
+                : "AI-genererade insikter från den senaste slutförda assessmenten, endast titlar, grupperade per domän."),
         ]
+        var hidden: [String] = []
+        if data.nameHidden { hidden.append("Projektnamnet är dolt.") }
+        if data.textsHidden { hidden.append("Uppgifts- och insiktstexter är dolda.") }
+        if !hidden.isEmpty {
+            items.insert(("Anonymisering", hidden.joined(separator: " ")), at: 1)
+        }
         let blocks = items.map { heading, body in
             ReportBlock {
                 VStack(alignment: .leading, spacing: 3) {

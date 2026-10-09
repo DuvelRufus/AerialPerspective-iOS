@@ -15,6 +15,7 @@ struct ExportReportSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var anonymize = true
+    @State private var hideTexts = true
     @State private var isGenerating = false
     @State private var reportURL: URL? = nil
     @State private var errorMessage: String? = nil
@@ -26,13 +27,21 @@ struct ExportReportSheet: View {
                 VStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 8) {
                         APSectionHeader(title: "RAPPORT")
-                        Toggle("Anonymisera projektnamn", isOn: $anonymize)
-                            .tint(.apOrange)
-                            .foregroundStyle(.apTextPrimary)
-                            .padding()
-                            .background(Color.apSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .disabled(isGenerating)
+                        VStack(spacing: 0) {
+                            Toggle("Anonymisera projektnamn", isOn: $anonymize)
+                                .padding()
+                            Rectangle()
+                                .fill(Color.apHairline)
+                                .frame(height: 0.5)
+                                .padding(.leading)
+                            Toggle("Dölj uppgifts- och insiktstexter", isOn: $hideTexts)
+                                .padding()
+                        }
+                        .tint(.apOrange)
+                        .foregroundStyle(.apTextPrimary)
+                        .background(Color.apSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .disabled(isGenerating)
                     }
 
                     if let errorMessage {
@@ -75,10 +84,14 @@ struct ExportReportSheet: View {
             .toolbarBackground(Color.apBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
-        .presentationDetents([.medium])
-        // A built file reflects the toggle it was made with — drop it
+        .presentationDetents([.large])
+        // A built file reflects the toggles it was made with — drop it
         // so a flipped toggle can't share the other variant.
         .onChange(of: anonymize) {
+            reportURL = nil
+            errorMessage = nil
+        }
+        .onChange(of: hideTexts) {
             reportURL = nil
             errorMessage = nil
         }
@@ -93,7 +106,8 @@ struct ExportReportSheet: View {
             let data = try await ProjectReportLoader.load(
                 project: project,
                 questionStore: questionStore,
-                anonymized: anonymize
+                anonymized: anonymize,
+                hideTexts: hideTexts
             )
             reportURL = try ProjectReportPDF.render(data)
         } catch {

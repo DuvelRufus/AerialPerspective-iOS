@@ -35,7 +35,8 @@ enum ProjectReportLoader {
         project: Project,
         questionStore: QuestionStore,
         anonymized: Bool = false,
-        anonymizedName: String = "Team A"
+        anonymizedName: String = "Team A",
+        hideTexts: Bool = false
     ) async throws -> ProjectReportData {
         if questionStore.questions.isEmpty || !questionStore.templatesLoaded {
             await questionStore.fetch()
@@ -122,7 +123,9 @@ enum ProjectReportLoader {
             .filter(\.isDone)
             .map { action in
                 DoneAction(
-                    title: action.title,
+                    // With hideTexts the real title never enters the data.
+                    title: hideTexts ? placeholderTitle(action.origin) : action.title,
+                    origin: action.origin,
                     domain: action.domain,
                     completedAt: action.completedAt,
                     completedAtManual: action.completedAtManual,
@@ -139,19 +142,21 @@ enum ProjectReportLoader {
         var latestInsights: [InsightSummary] = []
         if let latest = completed.last {
             // Title + domain only — the report never carries body text.
+            // With hideTexts not even the title is fetched.
             let rows: [InsightRow] = try await supabase
                 .from("insights")
-                .select("title, domain")
+                .select(hideTexts ? "domain" : "title, domain")
                 .eq("assessment_id", value: latest.id)
                 .order("created_at", ascending: true)
                 .execute()
                 .value
-            latestInsights = rows.map { InsightSummary(title: $0.title, domain: $0.domain) }
+            latestInsights = rows.map { InsightSummary(title: hideTexts ? nil : $0.title, domain: $0.domain) }
         }
 
         return ProjectReportData(
             projectName: anonymized ? anonymizedName : project.name,
-            anonymized: anonymized,
+            nameHidden: anonymized,
+            textsHidden: hideTexts,
             templateLabelsPerDomain: Dictionary(
                 uniqueKeysWithValues: Domain.allCases.map { ($0, questionStore.domainLabel($0, project: project)) }
             ),
@@ -210,6 +215,15 @@ enum ProjectReportLoader {
             } else {
                 counts.doneWithoutDate += 1
             }
+        }
+    }
+
+    /// Stands in for a task title when texts are hidden.
+    private static func placeholderTitle(_ origin: ActionOrigin) -> String {
+        switch origin {
+        case .plan:    return "Planuppgift"
+        case .insight: return "Insiktsuppgift"
+        case .own:     return "Egen uppgift"
         }
     }
 

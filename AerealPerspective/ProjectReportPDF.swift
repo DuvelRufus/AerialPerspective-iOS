@@ -34,9 +34,11 @@ enum ProjectReportPDF {
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProjectReports", isDirectory: true)
+        // Empty the folder first, so no earlier export (e.g. one carrying
+        // the real project name) is left behind next to this one.
+        try? FileManager.default.removeItem(at: directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(fileName(for: data))
-        try? FileManager.default.removeItem(at: url)
 
         var mediaBox = CGRect(origin: .zero, size: ReportLayout.pageSize)
         guard let context = CGContext(url as CFURL, mediaBox: &mediaBox, nil) else {
@@ -61,7 +63,7 @@ enum ProjectReportPDF {
         return url
     }
 
-    /// data.projectName is already "Team A" when anonymized, so the real
+    /// data.projectName is already "Team A" when nameHidden, so the real
     /// name never reaches the file name then.
     static func fileName(for data: ProjectReportData) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
