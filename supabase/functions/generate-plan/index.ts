@@ -42,6 +42,12 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Diagnostik: bara metadata loggas, aldrig prompt, svar eller modelltext.
+  const startedAt = Date.now();
+  let anthropicStatus: number | null = null;
+  let stopReason: string | null = null;
+  let textLength: number | null = null;
+
   try {
        // Kräver en inloggad, icke-anonym användare. Token verifieras mot
     // Auth-servern, inte bara avkodas, så skyddet hänger inte på
@@ -60,6 +66,7 @@ Deno.serve(async (req) => {
 
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) {
+      console.error(`generate-plan: error ${JSON.stringify({ path: "missing_api_key", elapsedMs: Date.now() - startedAt })}`);
       return new Response(
         JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -76,6 +83,7 @@ Deno.serve(async (req) => {
       templateName,
       domainLabels,
     } = body;
+    console.log(`generate-plan: start ${JSON.stringify({ questionCount: Array.isArray(questionsWithAnswers) ? questionsWithAnswers.length : null })}`);
 
     if (!scores || !questionsWithAnswers) {
       return new Response(
@@ -188,9 +196,20 @@ Returnera ENDAST ett giltigt JSON-objekt, ingen markdown. Format:
         messages: [{ role: "user", content: prompt }],
       }),
     });
+    anthropicStatus = res.status;
 
     if (!res.ok) {
       const text = await res.text();
+      let errorType: string | null = null;
+      let errorMessage: string | null = null;
+      try {
+        const parsed = JSON.parse(text);
+        errorType = parsed?.error?.type ?? null;
+        errorMessage = parsed?.error?.message ?? null;
+      } catch (_e) {
+        // Ej JSON: bara status loggas.
+      }
+      console.error(`generate-plan: error ${JSON.stringify({ path: "anthropic_not_ok", anthropicStatus, errorType, errorMessage, elapsedMs: Date.now() - startedAt })}`);
       return new Response(
         JSON.stringify({ error: `Anthropic API error: ${text}` }),
         {
@@ -202,6 +221,8 @@ Returnera ENDAST ett giltigt JSON-objekt, ingen markdown. Format:
 
     const data = await res.json();
     const text: string = data?.content?.[0]?.text ?? "";
+    stopReason = data?.stop_reason ?? null;
+    textLength = text.length;
 
     const cleaned = text
       .replace(/^```json\s*/i, "")
@@ -217,6 +238,7 @@ Returnera ENDAST ett giltigt JSON-objekt, ingen markdown. Format:
     try {
       plan = JSON.parse(jsonStr);
     } catch (_e) {
+      console.error(`generate-plan: error ${JSON.stringify({ path: "parse_failure", anthropicStatus, stopReason, textLength, elapsedMs: Date.now() - startedAt })}`);
       return new Response(
         JSON.stringify({ error: "Failed to parse Claude response", raw: text }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -236,10 +258,12 @@ Returnera ENDAST ett giltigt JSON-objekt, ingen markdown. Format:
       }
     }
 
+    console.log(`generate-plan: success ${JSON.stringify({ stopReason, textLength })}`);
     return new Response(JSON.stringify({ plan }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    console.error(`generate-plan: error ${JSON.stringify({ path: "catch", anthropicStatus, stopReason, textLength, errName: err instanceof Error ? err.name : null, errMessage: err instanceof Error ? err.message : String(err), elapsedMs: Date.now() - startedAt })}`);
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
