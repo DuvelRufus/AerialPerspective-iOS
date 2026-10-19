@@ -220,7 +220,15 @@ Returnera ENDAST ett giltigt JSON-objekt, ingen markdown. Format:
     }
 
     const data = await res.json();
-    const text: string = data?.content?.[0]?.text ?? "";
+    // Svaret kan ha flera block (t.ex. thinking före text): sätt ihop alla
+    // text-block i ordning i stället för att bara läsa det första.
+    const blocks: Array<{ type?: string; text?: string }> = Array.isArray(data?.content) ? data.content : [];
+    const blockTypes = blocks.map((b) => String(b?.type));
+    const blockCount = blocks.length;
+    const text: string = blocks
+      .filter((b) => b?.type === "text" && typeof b.text === "string")
+      .map((b) => b.text as string)
+      .join("");
     stopReason = data?.stop_reason ?? null;
     textLength = text.length;
 
@@ -238,7 +246,7 @@ Returnera ENDAST ett giltigt JSON-objekt, ingen markdown. Format:
     try {
       plan = JSON.parse(jsonStr);
     } catch (_e) {
-      console.error(`generate-plan: error ${JSON.stringify({ path: "parse_failure", anthropicStatus, stopReason, textLength, elapsedMs: Date.now() - startedAt })}`);
+      console.error(`generate-plan: error ${JSON.stringify({ path: "parse_failure", anthropicStatus, stopReason, textLength, blockTypes, blockCount, elapsedMs: Date.now() - startedAt })}`);
       return new Response(
         JSON.stringify({ error: "Failed to parse Claude response", raw: text }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -258,7 +266,7 @@ Returnera ENDAST ett giltigt JSON-objekt, ingen markdown. Format:
       }
     }
 
-    console.log(`generate-plan: success ${JSON.stringify({ stopReason, textLength })}`);
+    console.log(`generate-plan: success ${JSON.stringify({ stopReason, textLength, blockTypes, blockCount })}`);
     return new Response(JSON.stringify({ plan }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
