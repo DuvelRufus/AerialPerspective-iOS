@@ -193,7 +193,7 @@ enum HandoverCSV {
 
         let name = fileName(for: data.generatedAt, timeZone: timeZone)
         let url = folder.appendingPathComponent(name, isDirectory: false)
-        try encode(data, timeZone: timeZone).write(to: url, options: .atomic)
+        try encode(data, timeZone: timeZone).write(to: url, options: [.atomic, .completeFileProtection])
 
         // File systems may hand a name back in another Unicode normalization.
         let keep = name.precomposedStringWithCanonicalMapping
