@@ -34,6 +34,11 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Diagnostik: bara metadata loggas, aldrig prompt, svar eller modelltext.
+  const startedAt = Date.now();
+  let stopReason: string | null = null;
+  let textLength: number | null = null;
+
   try {
      // Kräver en inloggad, icke-anonym användare. Token verifieras mot
     // Auth-servern, inte bara avkodas, så skyddet hänger inte på
@@ -52,7 +57,7 @@ Deno.serve(async (req) => {
 
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) {
-      console.error("generate-insights error: ANTHROPIC_API_KEY is not configured");
+      console.error(`generate-insights: error ${JSON.stringify({ path: "missing_api_key", elapsedMs: Date.now() - startedAt })}`);
       return new Response(
         JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -61,6 +66,8 @@ Deno.serve(async (req) => {
 
     const body = (await req.json()) as Payload;
     const { scores, questionsWithAnswers, templateName, domainLabels } = body;
+
+    console.log(`generate-insights: start ${JSON.stringify({ questionCount: Array.isArray(questionsWithAnswers) ? questionsWithAnswers.length : null })}`);
 
     if (!scores || !questionsWithAnswers) {
       return new Response(JSON.stringify({ error: "Missing scores or questionsWithAnswers" }), {
@@ -137,7 +144,16 @@ suggested_action: en kort konkret åtgärd på svenska i imperativ form, max 12 
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("generate-insights: Anthropic API error", res.status, errText);
+      let errorType: string | null = null;
+      let errorMessage: string | null = null;
+      try {
+        const parsed = JSON.parse(errText);
+        errorType = parsed?.error?.type ?? null;
+        errorMessage = parsed?.error?.message ?? null;
+      } catch (_e) {
+        // Ej JSON: bara status loggas.
+      }
+      console.error(`generate-insights: error ${JSON.stringify({ path: "anthropic_not_ok", anthropicStatus: res.status, errorType, errorMessage, elapsedMs: Date.now() - startedAt })}`);
       return new Response(
         JSON.stringify({ error: `Anthropic API error: ${errText}` }),
         {
@@ -148,9 +164,12 @@ suggested_action: en kort konkret åtgärd på svenska i imperativ form, max 12 
     }
 
     const data = await res.json();
-    console.log("generate-insights: stop_reason =", data?.stop_reason);
-    const text: string = data?.content?.[0]?.text ?? "";
-    console.log("raw model output:", text.slice(0, 200));
+    // Svaret kan ha flera block (t.ex. thinking före text): sätt ihop alla
+    // text-block i ordning i stället för att bara läsa det första.
+    const blocks = Array.isArray(data?.content) ? data.content : [];
+    const text: string = blocks.filter((b: any) => b?.type === "text" && typeof b.text === "string").map((b: any) => b.text).join("");
+    stopReason = data?.stop_reason ?? null;
+    textLength = text.length;
 
     const cleaned = text
       .replace(/^```json\s*/i, "")
@@ -166,7 +185,7 @@ suggested_action: en kort konkret åtgärd på svenska i imperativ form, max 12 
     try {
       insights = JSON.parse(jsonStr);
     } catch (_e) {
-      console.error("generate-insights: failed to parse model output as JSON:", text.slice(0, 200));
+      console.error(`generate-insights: error ${JSON.stringify({ path: "parse_failure", stopReason, textLength, elapsedMs: Date.now() - startedAt })}`);
       return new Response(
         JSON.stringify({ error: "Failed to parse Claude response", raw: text }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -190,11 +209,13 @@ suggested_action: en kort konkret åtgärd på svenska i imperativ form, max 12 
       };
     });
 
+    console.log(`generate-insights: success ${JSON.stringify({ stopReason, textLength, elapsedMs: Date.now() - startedAt })}`);
     return new Response(JSON.stringify({ insights: normalized }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    console.error("generate-insights error:", err instanceof Error ? err.message : String(err));
+    // Bara errName: err.message kan citera indata eller modelltext.
+    console.error(`generate-insights: error ${JSON.stringify({ path: "catch", stopReason, textLength, errName: err instanceof Error ? err.name : null, elapsedMs: Date.now() - startedAt })}`);
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
