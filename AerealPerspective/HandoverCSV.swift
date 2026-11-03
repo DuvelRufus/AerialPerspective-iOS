@@ -22,6 +22,11 @@ import Foundation
 // - The delimiter is a semicolon by default. Excel with a Swedish regional
 //   setting uses the comma as decimal separator and therefore ";" as list
 //   separator, so a comma-separated file opens as a single column there.
+// - Language: header, status words (Priority, In progress, Waiting, Open) and
+//   Yes/No are English. Team name, domain label (the template's own, Swedish)
+//   and action text are written as stored, never translated.
+// - Header line: Team;Domain;Status;Action;Created;In active plan (each name
+//   in quotes, like every field). Created is yyyy-MM-dd.
 //
 // Formula injection: a spreadsheet may run a cell as a formula when its text
 // starts with =, +, - or @ (or with a tab or carriage return). Any field whose
@@ -35,15 +40,15 @@ enum HandoverCSV {
     static let defaultDelimiter = ";"
 
     /// Column order of the file.
-    static let header = ["Team", "Domän", "Status", "Åtgärd", "Skapad", "I aktiv plan"]
+    static let header = ["Team", "Domain", "Status", "Action", "Created", "In active plan"]
 
     /// The one row a team that failed to load gets.
-    static let failedTeamTitle = "DATA SAKNAS – teamet kunde inte hämtas"
+    static let failedTeamTitle = "DATA MISSING - the team could not be loaded"
 
-    /// "I aktiv plan" values. A task whose plan_action_id names no item of the
-    /// active plan (orphan link) is "Nej": it is not in the active plan.
-    static let inPlanYes = "Ja"
-    static let inPlanNo = "Nej"
+    /// "In active plan" values. A task whose plan_action_id names no item of the
+    /// active plan (orphan link) is "No": it is not in the active plan.
+    static let inPlanYes = "Yes"
+    static let inPlanNo = "No"
 
     /// Folder (inside the base directory) that holds the exported file. Only
     /// this folder is ever cleaned, never the folder the PDF report uses.
@@ -96,7 +101,7 @@ enum HandoverCSV {
                     result.append([
                         team.name,
                         domainLabel(action, team: team),
-                        action.state.label,
+                        statusText(action.state),
                         action.title,
                         dates.string(from: action.createdAt),
                         entry.planPhase != nil ? inPlanYes : inPlanNo,
@@ -105,6 +110,18 @@ enum HandoverCSV {
             }
         }
         return result
+    }
+
+    /// English status words of the file. HandoverActionState.classify already
+    /// turns an unknown stored value into .open (the Markdown export shows it
+    /// as "Öppen"), so an unknown status ends up as "Open" here as well.
+    static func statusText(_ state: HandoverActionState) -> String {
+        switch state {
+        case .prio:    return "Priority"
+        case .doing:   return "In progress"
+        case .waiting: return "Waiting"
+        case .open:    return "Open"
+        }
     }
 
     /// The team's own template label, the wording the PDF uses. A domain the
@@ -165,7 +182,7 @@ enum HandoverCSV {
         return formatter
     }
 
-    /// "Åtgärder-<yyyy-MM-dd>-<HHmm>.csv", date and time in `timeZone` (the
+    /// "Actions-<yyyy-MM-dd>-<HHmm>.csv", date and time in `timeZone` (the
     /// local one by default, not UTC). The stamp is taken from
     /// HandoverMarkdown.fileName, so the format has one source and the two
     /// files always carry the same stamp for the same Date. The stamp is the
@@ -175,12 +192,12 @@ enum HandoverCSV {
         let markdownName = HandoverMarkdown.fileName(for: date, timeZone: timeZone)
         let base = markdownName.split(separator: ".", omittingEmptySubsequences: false).dropLast().joined(separator: ".")
         let stamp = base.split(separator: "-").suffix(4).joined(separator: "-")
-        return "Åtgärder-\(stamp).csv"
+        return "Actions-\(stamp).csv"
     }
 
     // MARK: - Writing
 
-    /// Writes the file to `<baseDirectory>/HandoverCSV/Åtgärder-<date>-<HHmm>.csv`
+    /// Writes the file to `<baseDirectory>/HandoverCSV/Actions-<date>-<HHmm>.csv`
     /// and returns its URL. The name uses `data.generatedAt`. Afterwards every
     /// other item in the HandoverCSV folder is removed, so exporting twice (also
     /// on different days) leaves one file. The file is written first, so a
