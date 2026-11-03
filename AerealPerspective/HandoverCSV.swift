@@ -35,17 +35,22 @@ enum HandoverCSV {
     static let defaultDelimiter = ";"
 
     /// Column order of the file.
-    static let header = ["Team", "Titel", "Domän", "Status", "Skapad", "Källa", "Planfas"]
+    static let header = ["Team", "Domän", "Status", "Åtgärd", "Skapad", "I aktiv plan"]
 
     /// The one row a team that failed to load gets.
     static let failedTeamTitle = "DATA SAKNAS – teamet kunde inte hämtas"
 
-    /// Planfas for a task whose plan_action_id names no item of the active plan.
-    static let orphanPhase = "ej i aktiv plan"
+    /// "I aktiv plan" values. A task whose plan_action_id names no item of the
+    /// active plan (orphan link) is "Nej": it is not in the active plan.
+    static let inPlanYes = "Ja"
+    static let inPlanNo = "Nej"
 
     /// Folder (inside the base directory) that holds the exported file. Only
     /// this folder is ever cleaned, never the folder the PDF report uses.
-    static let folderName = "Handover"
+    /// Deliberately not "Handover": HandoverMarkdown.write removes every other
+    /// item in that folder, which would delete this file while the user may be
+    /// sharing it (and the reverse).
+    static let folderName = "HandoverCSV"
 
     static let byteOrderMark = Data([0xEF, 0xBB, 0xBF])
 
@@ -83,19 +88,18 @@ enum HandoverCSV {
         for team in data.teams {
             switch team.outcome {
             case .failed:
-                result.append([team.name, failedTeamTitle, "", "", "", "", ""])
+                result.append([team.name, "", "", failedTeamTitle, "", ""])
             case .loaded(let teamData):
                 let entries = teamData.openActions.sorted { HandoverOrdering.actionPrecedes($0.action, $1.action) }
                 for entry in entries {
                     let action = entry.action
                     result.append([
                         team.name,
-                        action.title,
                         domainLabel(action, team: team),
                         action.state.label,
+                        action.title,
                         dates.string(from: action.createdAt),
-                        action.source.label,
-                        planPhase(entry),
+                        entry.planPhase != nil ? inPlanYes : inPlanNo,
                     ])
                 }
             }
@@ -109,12 +113,6 @@ enum HandoverCSV {
     private static func domainLabel(_ action: HandoverAction, team: HandoverTeam) -> String {
         guard let key = action.domainKey else { return action.domain }
         return team.label(key)
-    }
-
-    private static func planPhase(_ entry: HandoverOpenEntry) -> String {
-        if let phase = entry.planPhase { return HandoverPhase.label(phase) }
-        if entry.orphanLink { return orphanPhase }
-        return ""
     }
 
     // MARK: - Fields
@@ -167,20 +165,27 @@ enum HandoverCSV {
         return formatter
     }
 
-    /// "Åtgärder-<yyyy-MM-dd>.csv", the date in `timeZone` (the local one by
-    /// default, not UTC).
+    /// "Åtgärder-<yyyy-MM-dd>-<HHmm>.csv", date and time in `timeZone` (the
+    /// local one by default, not UTC). The stamp is taken from
+    /// HandoverMarkdown.fileName, so the format has one source and the two
+    /// files always carry the same stamp for the same Date. The stamp is the
+    /// last four "-"-separated parts of that name without extension
+    /// (yyyy, MM, dd, HHmm), which does not depend on its prefix.
     static func fileName(for date: Date, timeZone: TimeZone = .current) -> String {
-        "Åtgärder-\(dateFormatter(timeZone: timeZone).string(from: date)).csv"
+        let markdownName = HandoverMarkdown.fileName(for: date, timeZone: timeZone)
+        let base = markdownName.split(separator: ".", omittingEmptySubsequences: false).dropLast().joined(separator: ".")
+        let stamp = base.split(separator: "-").suffix(4).joined(separator: "-")
+        return "Åtgärder-\(stamp).csv"
     }
 
     // MARK: - Writing
 
-    /// Writes the file to `<baseDirectory>/Handover/Åtgärder-<date>.csv` and
-    /// returns its URL. The name uses `data.generatedAt`. Afterwards every
-    /// other item in the Handover folder is removed, so exporting twice (also
+    /// Writes the file to `<baseDirectory>/HandoverCSV/Åtgärder-<date>-<HHmm>.csv`
+    /// and returns its URL. The name uses `data.generatedAt`. Afterwards every
+    /// other item in the HandoverCSV folder is removed, so exporting twice (also
     /// on different days) leaves one file. The file is written first, so a
     /// failed write does not delete the previous export. Nothing outside the
-    /// Handover folder is touched.
+    /// HandoverCSV folder is touched.
     @discardableResult
     static func write(
         _ data: HandoverData,
@@ -202,5 +207,12 @@ enum HandoverCSV {
             try? fileManager.removeItem(at: item)
         }
         return url
+    }
+
+    /// Removes the exported file, e.g. when a later result is incomplete and
+    /// an older complete export must not stay around.
+    static func removeExport(baseDirectory: URL = FileManager.default.temporaryDirectory) {
+        let folder = baseDirectory.appendingPathComponent(folderName, isDirectory: true)
+        try? FileManager.default.removeItem(at: folder)
     }
 }

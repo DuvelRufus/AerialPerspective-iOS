@@ -10,11 +10,12 @@ import Supabase   // error types only (AuthError, HTTPError, PostgrestError); no
 
 /// Internal handover ("Överlämning"): pick projects, load them with
 /// HandoverLoader, check the result, share the Markdown file written by
-/// HandoverMarkdown. Read-only. Not anonymized by design; the notice at the
+/// HandoverMarkdown and, for a complete result, the CSV written by
+/// HandoverCSV. Read-only. Not anonymized by design; the notice at the
 /// top says so.
 ///
 /// All state lives in HandoverExportModel below. The view only draws it and
-/// forwards taps; the model only calls HandoverLoader and HandoverMarkdown.
+/// forwards taps; the model only calls HandoverLoader, HandoverMarkdown and HandoverCSV.
 ///
 /// QuestionStore is passed through to the loader and never read here. The
 /// sheet does not trigger QuestionStore.fetch() when it opens (the app
@@ -257,10 +258,52 @@ struct HandoverExportSheet: View {
                         .foregroundStyle(Color.apTextTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    csvShare(complete: data.isComplete)
                 }
                 closeButton
             }
         }
+    }
+
+    /// Secondary share button for the CSV of the same loaded result. Only a
+    /// complete result has a file; an incomplete one shows the button disabled
+    /// with the reason, never a partial CSV.
+    @ViewBuilder
+    private func csvShare(complete: Bool) -> some View {
+        if complete, let csvURL = model.csvURL {
+            ShareLink(item: csvURL, preview: SharePreview(csvURL.lastPathComponent)) {
+                csvButtonLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dela åtgärderna som CSV-fil")
+            Text(csvURL.lastPathComponent)
+                .font(.caption)
+                .foregroundStyle(Color.apTextTertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        } else if !complete {
+            csvButtonLabel
+                .opacity(0.4)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Dela åtgärderna som CSV-fil")
+                .accessibilityValue("Inte tillgänglig")
+                .accessibilityAddTraits(.isButton)
+            Text("CSV kräver ett komplett resultat. Försök igen för att hämta de team som saknas.")
+                .font(.caption)
+                .foregroundStyle(Color.apTextSecondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    /// Same look as APPillButton(.secondary).
+    private var csvButtonLabel: some View {
+        Label("Dela CSV", systemImage: "tablecells")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Color.apTextPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(Capsule().fill(Color.apSurfaceElevated))
+            .overlay(Capsule().strokeBorder(Color.apHairline, lineWidth: 1))
     }
 
     /// The design system's warning style: apNote (the amber of the "note"
@@ -350,6 +393,8 @@ final class HandoverExportModel {
 
     private(set) var data: HandoverData?
     private(set) var fileURL: URL?
+    /// The CSV of `data`; nil unless `data` is complete.
+    private(set) var csvURL: URL?
 
     @ObservationIgnored private var task: Task<Void, Never>?
     /// Bumped on every start and cancel; a finishing task whose number is
@@ -421,6 +466,7 @@ final class HandoverExportModel {
         let chosen = candidates.filter { selected.contains($0.id) }
         data = nil
         fileURL = nil
+        csvURL = nil
         begin(projects: chosen, base: nil, questionStore: questionStore)
     }
 
@@ -485,8 +531,18 @@ final class HandoverExportModel {
                 }
                 // Synchronous: nothing can cancel between the check above and the write.
                 let url = try HandoverMarkdown.write(merged)
+                // The CSV only for a complete result. An older CSV must not
+                // outlive an incomplete one.
+                let csv: URL?
+                if merged.isComplete {
+                    csv = try HandoverCSV.write(merged)
+                } else {
+                    HandoverCSV.removeExport()
+                    csv = nil
+                }
                 data = merged
                 fileURL = url
+                csvURL = csv
                 phase = .result
             } catch {
                 guard run == id, !Task.isCancelled, !Self.isCancellation(error) else { return }
