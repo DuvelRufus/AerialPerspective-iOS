@@ -349,6 +349,7 @@ enum HandoverMarkdown {
     private struct DateFormats {
         private let dayFormatter: DateFormatter
         private let minuteFormatter: DateFormatter
+        private let stampFormatter: DateFormatter
 
         init(timeZone: TimeZone) {
             func make(_ format: String) -> DateFormatter {
@@ -363,21 +364,26 @@ enum HandoverMarkdown {
             }
             dayFormatter = make("yyyy-MM-dd")
             minuteFormatter = make("yyyy-MM-dd HH:mm")
+            stampFormatter = make("yyyy-MM-dd-HHmm")
         }
 
         func date(_ value: Date) -> String { dayFormatter.string(from: value) }
         func dateTime(_ value: Date) -> String { minuteFormatter.string(from: value) }
+        /// Date and time for file names: no colon, no space.
+        func fileStamp(_ value: Date) -> String { stampFormatter.string(from: value) }
     }
 
-    /// "Överlämning-<yyyy-MM-dd>.md", the date in `timeZone` (the local one
-    /// by default, not UTC).
+    /// "Överlämning-<yyyy-MM-dd>-<HHmm>.md", date and time in `timeZone` (the
+    /// local one by default, not UTC). Same Date and zone as the "Skapad" line,
+    /// so the name and the document always agree; two exports in different
+    /// minutes get different names.
     static func fileName(for date: Date, timeZone: TimeZone = .current) -> String {
-        "Överlämning-\(DateFormats(timeZone: timeZone).date(date)).md"
+        "Överlämning-\(DateFormats(timeZone: timeZone).fileStamp(date)).md"
     }
 
     // MARK: - Writing
 
-    /// Writes the document to `<baseDirectory>/Handover/Överlämning-<date>.md`
+    /// Writes the document to `<baseDirectory>/Handover/Överlämning-<yyyy-MM-dd>-<HHmm>.md`
     /// and returns its URL (the name uses `data.generatedAt`). UTF-8, no BOM,
     /// LF, complete file protection. The file is written first, then every
     /// other item in the Handover folder is removed, so exporting twice (also
