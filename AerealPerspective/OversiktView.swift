@@ -21,6 +21,7 @@ struct OversiktView: View {
     @State private var selectedLens = 0
     // Driver den staggrade "tänds upp"-effekten när korten visas.
     @State private var rowsRevealed = false
+    @State private var showHandoverSheet = false
 
     var body: some View {
         ZStack {
@@ -40,11 +41,16 @@ struct OversiktView: View {
         // hidden on this root.
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Översikt")
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(.apTextPrimary)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                HStack(alignment: .center, spacing: 12) {
+                    Text("Översikt")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(.apTextPrimary)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    handoverButton
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
                 APSegmentedControl(selection: $selectedLens, options: ["Team", "Tasks"])
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
@@ -60,12 +66,43 @@ struct OversiktView: View {
         // per-view, so pushed ProjectTabView gets its own bar back.
         .toolbar(.hidden, for: .navigationBar)
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showHandoverSheet) {
+            HandoverExportSheet(questionStore: questionStore)
+        }
         // On the stable ZStack, same lesson as ProjectListView: the
         // destination must stay mounted across lens/loading states.
         .navigationDestination(for: TeamPlanRoute.self) { route in
             ProjectTabView(project: route.project, questionStore: questionStore, initialSection: 1)
         }
         .task { await store.load(questionStore: questionStore, provider: scoresProvider) }
+    }
+
+    // MARK: - Handover button
+
+    /// Inactive until the team list has loaded and is not empty: the handover
+    /// is for the teams listed here. The sheet loads its own project list.
+    private var handoverUnavailable: Bool { store.isLoading || store.rows.isEmpty }
+
+    private var handoverButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showHandoverSheet = true
+        } label: {
+            Label("Överlämning", systemImage: "person.2.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.apOrange)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 36)
+                .background(Capsule().fill(Color.apOrangeTint))
+                .overlay(Capsule().strokeBorder(Color.apOrange.opacity(0.4), lineWidth: 1))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .disabled(handoverUnavailable)
+        .opacity(handoverUnavailable ? 0.4 : 1)
+        .accessibilityLabel("Skapa intern överlämning")
     }
 
     // MARK: - Lenses
