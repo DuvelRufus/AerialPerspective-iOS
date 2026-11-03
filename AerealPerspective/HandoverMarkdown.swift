@@ -251,7 +251,9 @@ enum HandoverMarkdown {
     /// that a backslash or an entity would have to hide. Backslash escapes
     /// and entities were rejected: GitHub looks for mentions in the rendered
     /// text, where both have already turned back into a plain "@name".
-    /// Not verifiable from here; to be checked in a GitHub preview.
+    /// Verified in a GitHub issue body on 2026-11-03: task list items render as
+    /// checkboxes, @mentions and #refs in code spans stay plain code, &lt; &gt;
+    /// &amp; render as visible text, and \| in a table cell is one cell with "|".
     private static let autolinkPattern = try! NSRegularExpression(
         pattern: #"(?<![\p{L}\p{N}_])(?:@[A-Za-z0-9][A-Za-z0-9_-]*(?:/[A-Za-z0-9_.-]+)?|(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+|GH-[0-9]+)"#
     )
